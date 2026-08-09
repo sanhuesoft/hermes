@@ -1,0 +1,6 @@
+allowBuilds:
+  core-js: true
+  es5-ext: false
+  msedge-tts: true
+  sharp: false
+  unrs-resolver: false
