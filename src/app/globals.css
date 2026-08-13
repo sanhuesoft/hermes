@@ -227,6 +227,15 @@ textarea:focus-visible,
   color: var(--color-accent);
 }
 
+.reader-header__btn--active {
+  color: var(--color-accent);
+}
+
+.reader-header__btn--active:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
 .reader-body {
   display: flex;
   flex: 1;

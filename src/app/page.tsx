@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   BookOpen,
   Bookmark as BookmarkIcon,
+  BookmarkCheck as BookmarkFilledIcon,
   Download,
   Focus,
   Menu,
@@ -56,6 +57,7 @@ export default function Home() {
   const [toc, setToc] = useState<Chapter[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
   const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
+  const [currentCfi, setCurrentCfi] = useState<string | null>(null);
 
   // -------------------------------------------------------
   // Estado de UI del lector
@@ -101,6 +103,7 @@ export default function Home() {
       setBookmarks(target.bookmarks ?? []);
       setFileBuffer(target.fileData);
       setInitialCfi(target.lastCfi ?? null); // restaurar posición guardada
+      setCurrentCfi(target.lastCfi ?? null);
       setBookMeta(null);
       setToc([]);
       setFile(null);
@@ -136,6 +139,7 @@ export default function Home() {
     setFile(null);
     setFileBuffer(null);
     setInitialCfi(null);
+    setCurrentCfi(null);
     setBookMeta(null);
     setToc([]);
     setHighlights([]);
@@ -174,6 +178,11 @@ export default function Home() {
   // -------------------------------------------------------
   // Bookmarks
   // -------------------------------------------------------
+  // Detectar si la página actual ya tiene bookmark
+  const isCurrentPageBookmarked = currentCfi
+    ? bookmarks.some((b) => b.cfi === currentCfi)
+    : false;
+
   const handleToggleBookmark = useCallback(() => {
     const cfi = viewerRef.current?.getCurrentCfi();
     if (!cfi) return;
@@ -306,12 +315,15 @@ export default function Home() {
           {/* Añadir marcador */}
           <button
             id="reader-bookmark-btn"
-            className="reader-header__btn"
+            className={`reader-header__btn${isCurrentPageBookmarked ? ' reader-header__btn--active' : ''}`}
             onClick={handleToggleBookmark}
-            title="Añadir marcador"
-            aria-label="Añadir marcador"
+            title={isCurrentPageBookmarked ? 'Eliminar marcador' : 'Añadir marcador'}
+            aria-label={isCurrentPageBookmarked ? 'Eliminar marcador' : 'Añadir marcador'}
+            aria-pressed={isCurrentPageBookmarked}
           >
-            <BookmarkIcon size={19} aria-hidden="true" />
+            {isCurrentPageBookmarked
+              ? <BookmarkFilledIcon size={19} aria-hidden="true" />
+              : <BookmarkIcon size={19} aria-hidden="true" />}
           </button>
 
           {/* Modo Zen */}
@@ -426,6 +438,7 @@ export default function Home() {
                   setHoveredHighlight(null);
                 }
               }}
+              onLocationChange={(cfi) => setCurrentCfi(cfi)}
               highlights={highlights}
             />
           </main>

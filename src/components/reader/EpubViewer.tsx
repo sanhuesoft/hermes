@@ -27,6 +27,8 @@ interface EpubViewerProps {
   onProgressUpdate?: (cfi: string) => void;
   /** Callback cuando se hace hover sobre un resaltado (para mostrar nota) */
   onHighlightHover?: (highlight: Highlight | null, position?: { x: number; y: number }) => void;
+  /** Callback cuando cambia la ubicación (para actualizar ícono de bookmark) */
+  onLocationChange?: (cfi: string) => void;
 }
 
 const THEME_CSS: Record<string, Record<string, string>> = {
@@ -62,6 +64,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   initialCfi,
   onProgressUpdate,
   onHighlightHover,
+  onLocationChange,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
@@ -77,10 +80,16 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const renderedHighlightsRef = useRef<Set<string>>(new Set());
   // Ref para mantener los highlights actuales accesibles a los listeners
   const highlightsRef = useRef<Highlight[]>(highlights);
+  // Ref para el callback onLocationChange
+  const onLocationChangeRef = useRef(onLocationChange);
 
   useEffect(() => {
     highlightsRef.current = highlights;
   }, [highlights]);
+
+  useEffect(() => {
+    onLocationChangeRef.current = onLocationChange;
+  }, [onLocationChange]);
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
   const { activeParagraphIndex, activeSentenceIndex, paragraphs: ttsParagraphs, status: ttsStatus, setParagraphs } = useTtsStore();
@@ -215,6 +224,36 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         if (currentLocation && getCleanHref(currentLocation.start.href) === cleanHref) {
           useTtsStore.getState().setParagraphs(paragraphs);
         }
+
+        // Re-aplicar highlights en la sección recién renderizada
+        // (necesario al cargar página o navegar entre capítulos)
+        const currentHighlights = highlightsRef.current;
+        const colorMap: Record<string, string> = {
+          yellow: '#ffc701',
+          green: '#c7e372',
+          blue: '#9ad0dc',
+          pink: '#ef5a68',
+        };
+        currentHighlights.forEach((hl) => {
+          // Marcar como no renderizado para forzar re-render en esta sección
+          renderedHighlightsRef.current.delete(hl.id);
+          try {
+            rendition.annotations.remove(hl.cfiRange, 'highlight');
+          } catch (_) { /* ignorar si no existía */ }
+          try {
+            const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
+            rendition.annotations.highlight(
+              hl.cfiRange,
+              {},
+              () => {},
+              `custom-hl-${hl.id}`,
+              { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
+            );
+            renderedHighlightsRef.current.add(hl.id);
+          } catch (e) {
+            console.warn('[EpubViewer] Error re-rendering highlight on rendered:', e);
+          }
+        });
 
         // Inyectar estilos de cursor + hover para párrafos clicables y FUENTES
         const styleId = 'tts-paragraph-click-styles';
@@ -392,7 +431,6 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         // Si la sección cambia a un capítulo diferente durante la reproducción,
         // detenemos el TTS para evitar reproducir audio desincronizado.
         const currentParagraphs = useTtsStore.getState().paragraphs;
-        const activeIdx = useTtsStore.getState().activeParagraphIndex;
         const newParagraphs = sectionParagraphsMapRef.current.get(cleanHref);
 
         if (status === 'playing' || status === 'loading') {
@@ -411,6 +449,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         if (location?.start?.cfi) {
           const cfi = location.start.cfi;
           lastCfiRef.current = cfi;
+          // Notificar cambio de ubicación para actualizar ícono de bookmark
+          onLocationChangeRef.current?.(cfi);
           if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
           progressSaveTimerRef.current = setTimeout(() => {
             onProgressUpdate?.(cfi);
@@ -577,22 +617,46 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   // Resaltado del párrafo activo de TTS + Auto-Paginación
   // -------------------------------------------------------
   useEffect(() => {
-    const iframe = containerRef.current?.querySelector('iframe');
-    if (!iframe?.contentDocument || !iframe.contentWindow) return;
+    if (!ttsActive) {
+      // Limpiar highlight cuando TTS no está activo
+      const contents = (renditionRef.current as any)?.getContents?.() ?? [];
+      for (const content of contents) {
+        const doc = content.document as Document | undefined;
+        if (!doc) continue;
+        const iframeWindow = doc.defaultView as any;
+        if (iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
+          iframeWindow.CSS.highlights.delete('tts-active');
+        }
+        doc.querySelectorAll<HTMLElement>('[data-paragraph-index]').forEach((el) => {
+          el.style.backgroundColor = '';
+        });
+      }
+      return;
+    }
+
+    // Obtener el documento del iframe activo a través de la rendition
+    const contents = (renditionRef.current as any)?.getContents?.() ?? [];
+    if (contents.length === 0) return;
+
+    // Usar el primer contenido visible (la vista activa)
+    const activeContent = contents[0];
+    const iframeDocument = activeContent?.document as Document | undefined;
+    const iframeWindow = iframeDocument?.defaultView as Window | undefined;
+    if (!iframeDocument || !iframeWindow) return;
 
     const currentText = ttsParagraphs[activeParagraphIndex] || '';
     const textChunks = splitIntoSentences(currentText);
     const sentenceText = textChunks[activeSentenceIndex] || currentText;
 
     const rect = highlightActiveParagraph(
-      iframe.contentDocument,
+      iframeDocument,
       activeParagraphIndex,
       sentenceText
     );
 
     // Auto-paginación: si la frase o párrafo activo está fuera de la pantalla visible, navegar
     if (rect && useTtsStore.getState().status === 'playing') {
-      const viewportWidth = iframe.contentWindow.innerWidth;
+      const viewportWidth = (iframeWindow as any).innerWidth;
 
       if (rect.left >= viewportWidth) {
         renditionRef.current?.next();
@@ -602,33 +666,30 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     }
 
     prevParagraphIndexRef.current = activeParagraphIndex;
-  }, [activeParagraphIndex, activeSentenceIndex, ttsParagraphs]);
+  }, [activeParagraphIndex, activeSentenceIndex, ttsParagraphs, ttsActive]);
 
   // -------------------------------------------------------
-  // Render highlights
+  // Render highlights (solo para highlights nuevos no cubiertos por el evento 'rendered')
   // -------------------------------------------------------
   useEffect(() => {
     if (!renditionRef.current) return;
     const rendition = renditionRef.current;
 
+    const colorMap: Record<string, string> = {
+      yellow: '#ffc701',
+      green: '#c7e372',
+      blue: '#9ad0dc',
+      pink: '#ef5a68',
+    };
+
     highlights.forEach((hl) => {
       if (!renderedHighlightsRef.current.has(hl.id)) {
         try {
-          // Extraer color real basado en el ID del color o usar el valor si es un color válido
-          const colorMap: Record<string, string> = {
-            yellow: '#ffc701',
-            green: '#c7e372',
-            blue: '#9ad0dc',
-            pink: '#ef5a68'
-          };
           const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
-
           rendition.annotations.highlight(
             hl.cfiRange,
             {},
-            (e: Event) => {
-              // Si se hace clic, también podemos mostrar/ocultar o hacer scroll
-            },
+            () => {},
             `custom-hl-${hl.id}`,
             { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
           );
