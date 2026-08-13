@@ -78,6 +78,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const sectionParagraphsMapRef = useRef<Map<string, string[]>>(new Map());
   // Ref para rastrear los highlights ya renderizados
   const renderedHighlightsRef = useRef<Set<string>>(new Set());
+  // Mapa id -> cfiRange para poder eliminar highlights incluso cuando ya no están en el prop
+  const cfiRangeByIdRef = useRef<Map<string, string>>(new Map());
   // Ref para mantener los highlights actuales accesibles a los listeners
   const highlightsRef = useRef<Highlight[]>(highlights);
   // Ref para el callback onLocationChange
@@ -226,45 +228,50 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         // Re-aplicar highlights de usuario DESPUÉS de que el DOM se haya estabilizado.
         // Usamos setTimeout(0) para que las anotaciones se apliquen en un tick posterior
         // al de extractParagraphs, evitando que epubjs borre los data-paragraph-index.
-        const currentHighlights = highlightsRef.current;
-        if (currentHighlights.length > 0) {
-          setTimeout(() => {
-            const colorMap: Record<string, string> = {
-              yellow: '#ffc701',
-              green: '#c7e372',
-              blue: '#9ad0dc',
-              pink: '#ef5a68',
-            };
-            currentHighlights.forEach((hl) => {
-              renderedHighlightsRef.current.delete(hl.id);
-              try {
-                rendition.annotations.remove(hl.cfiRange, 'highlight');
-              } catch (_) { /* ignorar si no existía */ }
-              try {
-                const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
-                rendition.annotations.highlight(
-                  hl.cfiRange,
-                  {},
-                  () => {},
-                  `custom-hl-${hl.id}`,
-                  { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
-                );
-                renderedHighlightsRef.current.add(hl.id);
-              } catch (e) {
-                console.warn('[EpubViewer] Error re-rendering highlight on rendered:', e);
-              }
-            });
+        // IMPORTANTE: `highlightsRef.current` se lee DENTRO del callback para siempre
+        // usar el valor actualizado, no un snapshot estancado del momento del evento.
+        setTimeout(() => {
+          const currentHighlights = highlightsRef.current; // leer AQUÍ, no fuera
+          const colorMap: Record<string, string> = {
+            yellow: '#ffc701',
+            green: '#c7e372',
+            blue: '#9ad0dc',
+            pink: '#ef5a68',
+          };
 
-            // Re-asignar data-paragraph-index DESPUÉS de que las anotaciones estén pintadas,
-            // para que el TTS siempre encuentre los atributos correctos en el DOM.
-            const freshParagraphs = extractParagraphs(iframeDocument);
-            sectionParagraphsMapRef.current.set(cleanHref, freshParagraphs);
-            const loc = rendition.location;
-            if (loc && getCleanHref(loc.start.href) === cleanHref) {
-              useTtsStore.getState().setParagraphs(freshParagraphs);
+          // Limpiar todas las anotaciones previas de esta sección
+          currentHighlights.forEach((hl) => {
+            renderedHighlightsRef.current.delete(hl.id);
+            try { rendition.annotations.remove(hl.cfiRange, 'highlight'); } catch (_) {}
+          });
+
+          // Re-añadir solo los highlights que siguen existiendo
+          currentHighlights.forEach((hl) => {
+            try {
+              const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
+              rendition.annotations.highlight(
+                hl.cfiRange,
+                {},
+                () => {},
+                `custom-hl-${hl.id}`,
+                { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
+              );
+              renderedHighlightsRef.current.add(hl.id);
+              cfiRangeByIdRef.current.set(hl.id, hl.cfiRange);
+            } catch (e) {
+              console.warn('[EpubViewer] Error re-rendering highlight on rendered:', e);
             }
-          }, 0);
-        }
+          });
+
+          // Re-asignar data-paragraph-index DESPUÉS de que las anotaciones estén pintadas,
+          // para que el TTS siempre encuentre los atributos correctos en el DOM.
+          const freshParagraphs = extractParagraphs(iframeDocument);
+          sectionParagraphsMapRef.current.set(cleanHref, freshParagraphs);
+          const loc = rendition.location;
+          if (loc && getCleanHref(loc.start.href) === cleanHref) {
+            useTtsStore.getState().setParagraphs(freshParagraphs);
+          }
+        }, 0);
 
         // Inyectar estilos de cursor + hover para párrafos clicables y FUENTES
         const styleId = 'tts-paragraph-click-styles';
@@ -724,7 +731,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   }, []);
 
   // -------------------------------------------------------
-  // Render highlights (solo para highlights nuevos no cubiertos por el evento 'rendered')
+  // Render / remove highlights
   // -------------------------------------------------------
   useEffect(() => {
     if (!renditionRef.current) return;
@@ -737,6 +744,26 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       pink: '#ef5a68',
     };
 
+    // Conjunto de IDs actuales
+    const currentIds = new Set(highlights.map((hl) => hl.id));
+
+    // Eliminar del rendition los highlights que ya no existen
+    renderedHighlightsRef.current.forEach((renderedId) => {
+      if (!currentIds.has(renderedId)) {
+        try {
+          const cfi = cfiRangeByIdRef.current.get(renderedId);
+          if (cfi) {
+            rendition.annotations.remove(cfi, 'highlight');
+          }
+        } catch (e) {
+          console.warn('[EpubViewer] Error removing highlight:', e);
+        }
+        renderedHighlightsRef.current.delete(renderedId);
+        cfiRangeByIdRef.current.delete(renderedId);
+      }
+    });
+
+    // Añadir los highlights nuevos
     highlights.forEach((hl) => {
       if (!renderedHighlightsRef.current.has(hl.id)) {
         try {
@@ -749,6 +776,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
             { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
           );
           renderedHighlightsRef.current.add(hl.id);
+          cfiRangeByIdRef.current.set(hl.id, hl.cfiRange);
         } catch (e) {
           console.warn('[EpubViewer] Error rendering highlight:', e);
         }

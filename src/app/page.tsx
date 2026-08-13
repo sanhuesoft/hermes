@@ -9,9 +9,11 @@ import {
   BookmarkCheck as BookmarkFilledIcon,
   Download,
   Focus,
-  Menu,
+  PanelLeft,
+  PanelRight,
   Settings,
   StickyNote,
+  Trash2,
   Upload,
 } from 'lucide-react';
 import { useReaderStore } from '@/stores/useReaderStore';
@@ -63,6 +65,7 @@ export default function Home() {
   // Estado de UI del lector
   // -------------------------------------------------------
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [annotationsPanelOpen, setAnnotationsPanelOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [highlightRequest, setHighlightRequest] = useState<{
     cfiRange: string;
@@ -268,12 +271,13 @@ export default function Home() {
           {/* TOC toggle */}
           <button
             id="reader-toc-btn"
-            className="reader-header__btn"
+            className={`reader-header__btn${sidebarOpen ? ' reader-header__btn--active' : ''}`}
             onClick={() => setSidebarOpen((v) => !v)}
             title="Tabla de contenidos"
             aria-label="Tabla de contenidos"
+            aria-pressed={sidebarOpen}
           >
-            <Menu size={20} aria-hidden="true" />
+            <PanelLeft size={20} aria-hidden="true" />
           </button>
 
           {/* Título del libro */}
@@ -337,6 +341,18 @@ export default function Home() {
             <Focus size={20} aria-hidden="true" />
           </button>
 
+          {/* Panel de anotaciones */}
+          <button
+            id="reader-annotations-btn"
+            className={`reader-header__btn${annotationsPanelOpen ? ' reader-header__btn--active' : ''}`}
+            onClick={() => setAnnotationsPanelOpen((v) => !v)}
+            title="Subrayados y notas"
+            aria-label="Subrayados y notas"
+            aria-pressed={annotationsPanelOpen}
+          >
+            <PanelRight size={20} aria-hidden="true" />
+          </button>
+
           {/* Ajustes */}
           <button
             id="reader-settings-btn"
@@ -351,7 +367,7 @@ export default function Home() {
 
         {/* Body: sidebar + epub */}
         <div className="reader-body">
-          {/* Sidebar TOC */}
+          {/* Sidebar TOC izquierdo */}
           <aside className={`reader-sidebar ${!sidebarOpen ? 'reader-sidebar--hidden' : ''}`}>
             <p className="toc-title">Capítulos</p>
             {toc.map((chapter) => (
@@ -388,25 +404,86 @@ export default function Home() {
                 ))}
               </>
             )}
+          </aside>
 
-            {highlights.filter(hl => hl.note).length > 0 && (
-              <>
-                <p className="toc-title" style={{ marginTop: '1.5rem' }}>Notas</p>
-                {highlights.filter(hl => hl.note).map((hl) => (
-                  <button
-                    key={hl.id}
-                    className="toc-item"
-                    title={hl.note}
-                    onClick={() => {
-                      viewerRef.current?.goToChapter(hl.cfiRange);
-                      setSidebarOpen(false);
-                    }}
-                  >
-                    <StickyNote size={14} aria-hidden="true" />
-                    <span>{hl.note?.slice(0, 30)}{(hl.note?.length ?? 0) > 30 ? '…' : ''}</span>
-                  </button>
-                ))}
-              </>
+          {/* Panel de anotaciones derecho */}
+          <aside
+            id="reader-annotations-panel"
+            className={`reader-annotations-panel ${!annotationsPanelOpen ? 'reader-annotations-panel--hidden' : ''}`}
+          >
+            <p className="toc-title">
+              Subrayados
+              <span className="annotations-count">{highlights.length}</span>
+            </p>
+
+            {highlights.length === 0 ? (
+              <p className="annotations-empty">No hay subrayados aún.</p>
+            ) : (
+              <div className="annotations-list">
+                {highlights.map((hl) => {
+                  const COLOR_HEX: Record<string, string> = {
+                    yellow: '#ffc701',
+                    green:  '#c7e372',
+                    blue:   '#9ad0dc',
+                    pink:   '#ef5a68',
+                  };
+                  const hex = COLOR_HEX[hl.color] || '#ffc701';
+                  return (
+                    <div
+                      key={hl.id}
+                      className="annotation-card"
+                      style={{ '--hl-color': hex } as React.CSSProperties}
+                    >
+                      {/* Texto subrayado */}
+                      <button
+                        className="annotation-card__text"
+                        title="Ir al subrayado"
+                        onClick={() => {
+                          viewerRef.current?.goToChapter(hl.cfiRange);
+                          setAnnotationsPanelOpen(false);
+                        }}
+                      >
+                        <span
+                          className="annotation-card__swatch"
+                          style={{ background: hex }}
+                        />
+                        <span className="annotation-card__quote">
+                          &ldquo;{hl.text.slice(0, 120)}{hl.text.length > 120 ? '…' : ''}&rdquo;
+                        </span>
+                      </button>
+
+                      {/* Nota (si existe) */}
+                      {hl.note && (
+                        <div className="annotation-card__note">
+                          <StickyNote size={12} aria-hidden="true" />
+                          <span>{hl.note}</span>
+                        </div>
+                      )}
+
+                      {/* Fecha + eliminar */}
+                      <div className="annotation-card__meta">
+                        <span className="annotation-card__date">
+                          {new Date(hl.createdAt).toLocaleDateString()}
+                        </span>
+                        <button
+                          className="annotation-card__delete"
+                          title="Eliminar subrayado"
+                          aria-label="Eliminar subrayado"
+                          onClick={() => {
+                            setHighlights((prev) => {
+                              const updated = prev.filter((h) => h.id !== hl.id);
+                              if (activeBookId) updateHighlights(activeBookId, updated).catch(console.error);
+                              return updated;
+                            });
+                          }}
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </aside>
 
