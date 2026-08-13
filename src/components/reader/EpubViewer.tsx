@@ -45,7 +45,10 @@ const FONT_MAP: Record<string, string> = {
   opendyslexic: '"OpenDyslexic", sans-serif',
 };
 
-const getCleanHref = (href: string) => decodeURIComponent(href.split('#')[0]);
+const getCleanHref = (href: string | undefined | null) => {
+  if (!href) return '';
+  return decodeURIComponent(href.split('#')[0]);
+};
 
 const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubViewer({
   file,
@@ -134,9 +137,6 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           window.dispatchEvent(new CustomEvent('toggle-tts'));
           return;
         }
-
-        // No permitir navegación por teclado si TTS está activo
-        if (useTtsStore.getState().status === 'playing') return;
 
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
@@ -262,15 +262,27 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
       // Evento de reubicación: guardar progreso + sincronizar TTS
       rendition.on('relocated', (location: any) => {
-        const { status, setActiveParagraphIndex, setChapterTitle } = useTtsStore.getState();
+        const { status, stop, setActiveParagraphIndex, setChapterTitle } = useTtsStore.getState();
 
         const currentHref = location.start.href;
         const cleanHref = getCleanHref(currentHref);
 
+        // Si la sección cambia a un capítulo diferente durante la reproducción,
+        // detenemos el TTS para evitar reproducir audio desincronizado.
+        const currentParagraphs = useTtsStore.getState().paragraphs;
+        const activeIdx = useTtsStore.getState().activeParagraphIndex;
+        const newParagraphs = sectionParagraphsMapRef.current.get(cleanHref);
+
+        if (status === 'playing' || status === 'loading') {
+          if (newParagraphs && (newParagraphs.length !== currentParagraphs.length || newParagraphs[0] !== currentParagraphs[0])) {
+            console.log('[TTS] Deteniendo reproducción por cambio manual de capítulo.');
+            stop();
+          }
+        }
+
         // Cargar del mapa local los párrafos de la sección visible activa
-        const paragraphs = sectionParagraphsMapRef.current.get(cleanHref);
-        if (paragraphs) {
-          useTtsStore.getState().setParagraphs(paragraphs);
+        if (newParagraphs) {
+          useTtsStore.getState().setParagraphs(newParagraphs);
         }
 
         // Guardar CFI con debounce de 1 s para no saturar IDB
@@ -426,12 +438,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   // Navegación
   // -------------------------------------------------------
   const nextPage = useCallback(() => {
-    if (useTtsStore.getState().status === 'playing') return;
     renditionRef.current?.next();
   }, []);
 
   const prevPage = useCallback(() => {
-    if (useTtsStore.getState().status === 'playing') return;
     renditionRef.current?.prev();
   }, []);
 
@@ -479,13 +489,6 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
   return (
     <div className="epub-viewer-wrapper relative flex h-full w-full flex-col">
-      {/* Indicador de navegación controlada por TTS */}
-      {ttsActive && (
-        <div className="tts-nav-lock-badge" aria-live="polite">
-          🎙 Leyendo en voz alta · pausa o detén para navegar
-        </div>
-      )}
-
       {/* Envoltorio con padding horizontal */}
       <div
         className="flex-1 transition-all duration-300 w-full h-full"
@@ -500,9 +503,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           id="epub-prev-page"
           onClick={prevPage}
           aria-label="Página anterior"
-          className={`epub-nav-btn pointer-events-auto ${ttsActive ? 'epub-nav-btn--locked' : ''}`}
-          title={ttsActive ? 'Pausa el TTS para navegar' : 'Página anterior'}
-          tabIndex={ttsActive ? -1 : 0}
+          className="epub-nav-btn pointer-events-auto"
+          title="Página anterior"
         >
           ‹
         </button>
@@ -510,9 +512,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           id="epub-next-page"
           onClick={nextPage}
           aria-label="Página siguiente"
-          className={`epub-nav-btn pointer-events-auto ${ttsActive ? 'epub-nav-btn--locked' : ''}`}
-          title={ttsActive ? 'Pausa el TTS para navegar' : 'Página siguiente'}
-          tabIndex={ttsActive ? -1 : 0}
+          className="epub-nav-btn pointer-events-auto"
+          title="Página siguiente"
         >
           ›
         </button>
