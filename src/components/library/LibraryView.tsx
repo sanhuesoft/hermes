@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { LibraryBig, LoaderCircle } from 'lucide-react';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import type { LibraryBook } from '@/types/epub';
 import LibrarySidebar from './LibrarySidebar';
@@ -46,13 +47,13 @@ export default function LibraryView({ onOpenBook }: LibraryViewProps) {
         {/* Estado de carga */}
         {isLoading ? (
           <div className="lib-empty">
-            <div className="lib-spinner" />
+            <LoaderCircle className="lib-spinner icon-spin" aria-hidden="true" />
             <p className="lib-empty__text">Cargando biblioteca…</p>
           </div>
         ) : books.length === 0 ? (
           /* Empty state */
           <div className="lib-empty">
-            <div className="lib-empty__icon">📚</div>
+            <LibraryBig className="lib-empty__icon" aria-hidden="true" />
             <h2 className="lib-empty__title">
               {selectedFolderId === 'all'
                 ? 'Tu biblioteca está vacía'

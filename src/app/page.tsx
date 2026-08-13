@@ -1,7 +1,18 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import {
+  ArrowLeft,
+  BookOpen,
+  Bookmark as BookmarkIcon,
+  Download,
+  Focus,
+  Menu,
+  Settings,
+  StickyNote,
+  Upload,
+} from 'lucide-react';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import { useTtsStore } from '@/stores/useTtsStore';
@@ -21,7 +32,7 @@ const EpubViewer = dynamic(() => import('@/components/reader/EpubViewer'), {
   loading: () => (
     <div className="flex h-full items-center justify-center">
       <div className="text-center" style={{ color: 'var(--text-muted)' }}>
-        <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>📖</div>
+        <BookOpen size={34} aria-hidden="true" style={{ margin: '0 auto 0.5rem' }} />
         <p style={{ fontSize: '0.9rem' }}>Cargando el lector…</p>
       </div>
     </div>
@@ -55,6 +66,10 @@ export default function Home() {
     cfiRange: string;
     text: string;
   } | null>(null);
+  const [hoveredHighlight, setHoveredHighlight] = useState<{
+    highlight: Highlight;
+    position: { x: number; y: number };
+  } | null>(null);
 
   const importSidecarRef = useRef<HTMLInputElement>(null);
   const viewerRef = useRef<EpubViewerHandle>(null);
@@ -71,9 +86,15 @@ export default function Home() {
   // Abrir un libro desde la biblioteca
   // -------------------------------------------------------
   const handleOpenBook = useCallback(
-    async (book: LibraryBook) => {
+    async (book: LibraryBook | { id: string }) => {
       const updated = await openBook(book.id);
-      const target = updated ?? book;
+      const target = updated ?? (book as LibraryBook);
+
+      if (!updated && !target.fileData) {
+        // El libro no se encontró en la BD y no hay datos
+        window.history.replaceState(null, '', window.location.pathname);
+        return;
+      }
 
       setActiveBookId(target.id);
       setHighlights(target.highlights ?? []);
@@ -84,9 +105,23 @@ export default function Home() {
       setToc([]);
       setFile(null);
       setActiveView('reader');
+      window.history.pushState(null, '', '?book=' + target.id);
     },
     [openBook]
   );
+
+  // -------------------------------------------------------
+  // Recuperar libro de la URL al cargar
+  // -------------------------------------------------------
+  useEffect(() => {
+    const bookId = new URLSearchParams(window.location.search).get('book');
+    if (!bookId) return;
+
+    const timer = window.setTimeout(() => {
+      handleOpenBook({ id: bookId });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [handleOpenBook]);
 
   // -------------------------------------------------------
   // Cerrar el lector y volver a la biblioteca
@@ -105,13 +140,14 @@ export default function Home() {
     setToc([]);
     setHighlights([]);
     setBookmarks([]);
+    window.history.pushState(null, '', window.location.pathname);
   }, [activeBookId, highlights, bookmarks, updateHighlights, updateBookmarks]);
 
   // -------------------------------------------------------
   // Highlights
   // -------------------------------------------------------
   const handleHighlightConfirm = useCallback(
-    (color: HighlightColor, note?: string) => {
+    async (color: HighlightColor, note?: string) => {
       if (!highlightRequest) return;
 
       const newHighlight: Highlight = {
@@ -123,10 +159,16 @@ export default function Home() {
         createdAt: new Date().toISOString(),
       };
 
-      setHighlights((prev) => [...prev, newHighlight]);
+      setHighlights((prev) => {
+        const updated = [...prev, newHighlight];
+        if (activeBookId) {
+          updateHighlights(activeBookId, updated).catch(console.error);
+        }
+        return updated;
+      });
       setHighlightRequest(null);
     },
-    [highlightRequest]
+    [highlightRequest, activeBookId, updateHighlights]
   );
 
   // -------------------------------------------------------
@@ -137,11 +179,10 @@ export default function Home() {
     if (!cfi) return;
 
     setBookmarks((prev) => {
-      // Simplistic check to see if we already have one near this CFI
-      // A more robust check could parse CFIs, but for now exact match or close enough is fine
-      const exists = prev.find(b => b.cfi === cfi);
+      const exists = prev.find((b) => b.cfi === cfi);
+      let updated;
       if (exists) {
-        return prev.filter(b => b.id !== exists.id);
+        updated = prev.filter((b) => b.id !== exists.id);
       } else {
         const newBookmark: Bookmark = {
           id: `bm_${Date.now()}`,
@@ -149,10 +190,14 @@ export default function Home() {
           label: `Marcador en posición`,
           createdAt: new Date().toISOString(),
         };
-        return [...prev, newBookmark];
+        updated = [...prev, newBookmark];
       }
+      if (activeBookId) {
+        updateBookmarks(activeBookId, updated).catch(console.error);
+      }
+      return updated;
     });
-  }, []);
+  }, [activeBookId, updateBookmarks]);
 
   // -------------------------------------------------------
   // Exportar / Importar sidecar
@@ -175,29 +220,25 @@ export default function Home() {
     }
   };
 
+  // Crear una fuente estable sin cambiar el orden de hooks entre vistas.
+  const epubSource = useMemo(() => {
+    return fileBuffer
+      ? new File([fileBuffer], 'book.epub', {
+          type: 'application/epub+zip',
+        })
+      : file;
+  }, [fileBuffer, file]);
+
   // -------------------------------------------------------
   // Vista: Biblioteca
   // -------------------------------------------------------
-  if (activeView === 'library') {
+  if (activeView === 'library' || !epubSource) {
     return <LibraryView onOpenBook={handleOpenBook} />;
   }
 
   // -------------------------------------------------------
   // Vista: Lector
   // -------------------------------------------------------
-
-  // Crear un File virtual desde el ArrayBuffer guardado en IndexedDB
-  const epubSource = fileBuffer
-    ? new File([fileBuffer], bookMeta?.title ?? 'book.epub', {
-        type: 'application/epub+zip',
-      })
-    : file;
-
-  if (!epubSource) {
-    // Fallback: si no hay fuente, volver a la biblioteca
-    setActiveView('library');
-    return null;
-  }
 
   return (
     <ZenOverlay>
@@ -212,7 +253,7 @@ export default function Home() {
             title="Volver a la biblioteca"
             aria-label="Volver a la biblioteca"
           >
-            ←
+            <ArrowLeft size={20} aria-hidden="true" />
           </button>
 
           {/* TOC toggle */}
@@ -223,7 +264,7 @@ export default function Home() {
             title="Tabla de contenidos"
             aria-label="Tabla de contenidos"
           >
-            ☰
+            <Menu size={20} aria-hidden="true" />
           </button>
 
           {/* Título del libro */}
@@ -240,7 +281,7 @@ export default function Home() {
               title="Exportar notas"
               aria-label="Exportar notas"
             >
-              ↓
+              <Download size={19} aria-hidden="true" />
             </button>
           )}
 
@@ -252,7 +293,7 @@ export default function Home() {
             title="Importar notas"
             aria-label="Importar notas"
           >
-            ↑
+            <Upload size={19} aria-hidden="true" />
           </button>
           <input
             ref={importSidecarRef}
@@ -270,7 +311,7 @@ export default function Home() {
             title="Añadir marcador"
             aria-label="Añadir marcador"
           >
-            🔖
+            <BookmarkIcon size={19} aria-hidden="true" />
           </button>
 
           {/* Modo Zen */}
@@ -281,7 +322,7 @@ export default function Home() {
             title="Modo Zen"
             aria-label="Activar modo Zen"
           >
-            ◎
+            <Focus size={20} aria-hidden="true" />
           </button>
 
           {/* Ajustes */}
@@ -292,7 +333,7 @@ export default function Home() {
             title="Ajustes de lectura"
             aria-label="Ajustes de lectura"
           >
-            ⚙
+            <Settings size={20} aria-hidden="true" />
           </button>
         </header>
 
@@ -329,7 +370,28 @@ export default function Home() {
                       setSidebarOpen(false);
                     }}
                   >
-                    🔖 {new Date(bm.createdAt).toLocaleDateString()} {new Date(bm.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <BookmarkIcon size={14} aria-hidden="true" />
+                    <span>{new Date(bm.createdAt).toLocaleDateString()} {new Date(bm.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </button>
+                ))}
+              </>
+            )}
+
+            {highlights.filter(hl => hl.note).length > 0 && (
+              <>
+                <p className="toc-title" style={{ marginTop: '1.5rem' }}>Notas</p>
+                {highlights.filter(hl => hl.note).map((hl) => (
+                  <button
+                    key={hl.id}
+                    className="toc-item"
+                    title={hl.note}
+                    onClick={() => {
+                      viewerRef.current?.goToChapter(hl.cfiRange);
+                      setSidebarOpen(false);
+                    }}
+                  >
+                    <StickyNote size={14} aria-hidden="true" />
+                    <span>{hl.note?.slice(0, 30)}{(hl.note?.length ?? 0) > 30 ? '…' : ''}</span>
                   </button>
                 ))}
               </>
@@ -357,6 +419,13 @@ export default function Home() {
               onHighlightRequest={(cfiRange, text) =>
                 setHighlightRequest({ cfiRange, text })
               }
+              onHighlightHover={(hl, pos) => {
+                if (hl && pos) {
+                  setHoveredHighlight({ highlight: hl, position: pos });
+                } else {
+                  setHoveredHighlight(null);
+                }
+              }}
               highlights={highlights}
             />
           </main>
@@ -376,6 +445,31 @@ export default function Home() {
             onConfirm={handleHighlightConfirm}
             onCancel={() => setHighlightRequest(null)}
           />
+        )}
+
+        {/* Tooltip de nota en resaltado */}
+        {hoveredHighlight && hoveredHighlight.highlight.note && (
+          <div
+            style={{
+              position: 'absolute',
+              top: hoveredHighlight.position.y + 10,
+              left: hoveredHighlight.position.x,
+              backgroundColor: 'var(--bg-card, #ffffff)',
+              border: '1px solid var(--border-color, rgba(100,100,100,0.2))',
+              padding: '0.5rem 1rem',
+              borderRadius: '0.5rem',
+              boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.2)',
+              zIndex: 50,
+              maxWidth: '300px',
+              color: 'var(--text-color, #1a1a1a)',
+              pointerEvents: 'none',
+              transform: 'translateX(-50%)', // Centrar horizontalmente respecto a la posición x
+            }}
+          >
+            <p style={{ margin: 0, fontSize: '0.95rem', lineHeight: '1.4' }}>
+              {hoveredHighlight.highlight.note}
+            </p>
+          </div>
         )}
 
         {/* Modal de ajustes */}

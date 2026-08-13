@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback } from 'react';
+import { LoaderCircle, Pause, Play, SkipBack, SkipForward, Square } from 'lucide-react';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { synthesizeSpeech } from '@/lib/tts/edge-tts-client';
 import { splitIntoSentences } from '@/lib/epub/parser';
@@ -389,7 +390,7 @@ export default function TtsControls() {
           aria-label="Párrafo anterior"
           className="tts-btn"
         >
-          ⏮
+          <SkipBack size={17} aria-hidden="true" />
         </button>
 
         {status === 'idle' || status === 'error' ? (
@@ -400,7 +401,11 @@ export default function TtsControls() {
             aria-label="Reproducir"
             className="tts-btn tts-btn--primary"
           >
-            {isLoading ? '⏳' : '▶'}
+            {isLoading ? (
+              <LoaderCircle className="icon-spin" size={18} aria-hidden="true" />
+            ) : (
+              <Play size={18} fill="currentColor" aria-hidden="true" />
+            )}
           </button>
         ) : status === 'playing' || status === 'loading' ? (
           <button
@@ -410,7 +415,11 @@ export default function TtsControls() {
             aria-label="Pausar"
             className="tts-btn tts-btn--primary"
           >
-            ⏸
+            {isLoading ? (
+              <LoaderCircle className="icon-spin" size={18} aria-hidden="true" />
+            ) : (
+              <Pause size={18} fill="currentColor" aria-hidden="true" />
+            )}
           </button>
         ) : (
           <button
@@ -420,7 +429,7 @@ export default function TtsControls() {
             aria-label="Reanudar"
             className="tts-btn tts-btn--primary"
           >
-            ▶
+            <Play size={18} fill="currentColor" aria-hidden="true" />
           </button>
         )}
 
@@ -431,7 +440,7 @@ export default function TtsControls() {
           aria-label="Párrafo siguiente"
           className="tts-btn"
         >
-          ⏭
+          <SkipForward size={17} aria-hidden="true" />
         </button>
 
         <button
@@ -441,7 +450,7 @@ export default function TtsControls() {
           aria-label="Detener"
           className="tts-btn"
         >
-          ⏹
+          <Square size={15} fill="currentColor" aria-hidden="true" />
         </button>
       </div>
     </div>

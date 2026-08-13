@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect } from 'react';
+import { Moon, ScrollText, Sun, X, type LucideIcon } from 'lucide-react';
 import { useReaderStore } from '@/stores/useReaderStore';
 import type { ReaderTheme, FontFamily } from '@/types/epub';
 
@@ -8,10 +10,10 @@ interface ReaderSettingsModalProps {
   onClose: () => void;
 }
 
-const THEMES: { id: ReaderTheme; label: string; icon: string }[] = [
-  { id: 'light', label: 'Claro',  icon: '☀️' },
-  { id: 'dark',  label: 'Oscuro', icon: '🌙' },
-  { id: 'sepia', label: 'Sepia',  icon: '📜' },
+const THEMES: { id: ReaderTheme; label: string; icon: LucideIcon }[] = [
+  { id: 'light', label: 'Claro',  icon: Sun },
+  { id: 'dark',  label: 'Oscuro', icon: Moon },
+  { id: 'sepia', label: 'Sepia',  icon: ScrollText },
 ];
 
 const FONTS: { id: FontFamily; label: string; preview: string }[] = [
@@ -29,6 +31,15 @@ export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsMod
     theme, fontFamily, fontSize, lineHeight, marginX,
     setTheme, setFontFamily, setFontSize, setLineHeight, setMarginX,
   } = useReaderStore();
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -52,7 +63,7 @@ export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsMod
             aria-label="Cerrar"
             className="settings-modal__close"
           >
-            ✕
+            <X size={18} aria-hidden="true" />
           </button>
         </div>
 
@@ -61,7 +72,9 @@ export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsMod
           <section className="settings-section">
             <h3 className="settings-section__label">Tema</h3>
             <div className="settings-section__group">
-              {THEMES.map((t) => (
+              {THEMES.map((t) => {
+                const ThemeIcon = t.icon;
+                return (
                 <button
                   key={t.id}
                   id={`theme-btn-${t.id}`}
@@ -69,10 +82,11 @@ export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsMod
                   aria-pressed={theme === t.id}
                   className={`settings-theme-btn ${theme === t.id ? 'settings-theme-btn--active' : ''}`}
                 >
-                  <span>{t.icon}</span>
+                  <ThemeIcon size={19} aria-hidden="true" />
                   <span>{t.label}</span>
                 </button>
-              ))}
+                );
+              })}
             </div>
           </section>
 

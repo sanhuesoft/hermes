@@ -50,7 +50,7 @@ export default function VoiceSelector() {
               {groupVoices.map((voice) => (
                 <option key={voice.ShortName} value={voice.ShortName}>
                   {voice.FriendlyName.replace('Microsoft ', '').replace(' Online (Natural)', '')}
-                  {' '}({voice.Gender === 'Female' ? '♀' : '♂'})
+                  {' '}({voice.Gender === 'Female' ? 'mujer' : 'hombre'})
                 </option>
               ))}
             </optgroup>

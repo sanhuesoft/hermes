@@ -1,6 +1,16 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  ArrowLeft,
+  BookOpen,
+  Folder,
+  FolderInput,
+  House,
+  Image as ImageIcon,
+  MoreVertical,
+  Trash2,
+} from 'lucide-react';
 import type { LibraryBook, LibraryFolder } from '@/types/epub';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 
@@ -59,17 +69,14 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
   const { folders, moveBook, removeBook, updateCover } = useLibraryStore();
 
   // ---------- Cover URL (regenerada desde coverData en cada montaje) ----------
-  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  const coverUrl = useMemo(() => bufferToObjectURL(book.coverData), [book.coverData]);
 
   useEffect(() => {
-    // Usar coverData (bytes persistidos) para generar la blob URL
-    const url = bufferToObjectURL(book.coverData);
-    setCoverUrl(url);
     return () => {
       // Limpiar la blob URL al desmontar para evitar memory leaks
-      if (url) URL.revokeObjectURL(url);
+      if (coverUrl) URL.revokeObjectURL(coverUrl);
     };
-  }, [book.coverData]);
+  }, [coverUrl]);
 
   // ---------- Menú de opciones ----------
   const [menuOpen, setMenuOpen] = useState(false);
@@ -114,10 +121,6 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
     }
     const newCoverData = await imgFile.arrayBuffer();
     await updateCover(book.id, newCoverData);
-    // Actualizar URL local inmediatamente
-    if (coverUrl) URL.revokeObjectURL(coverUrl);
-    const newUrl = bufferToObjectURL(newCoverData);
-    setCoverUrl(newUrl);
     setMenuOpen(false);
     if (coverInputRef.current) coverInputRef.current.value = '';
   };
@@ -128,14 +131,12 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
   return (
     <article className="book-card" id={`book-card-${book.id}`}>
       {/* Portada */}
-      <div
+      <button
+        type="button"
         className="book-card__cover"
         style={!coverUrl ? { background: bgColor } : undefined}
         onClick={() => onOpen(book)}
-        role="button"
-        tabIndex={0}
         aria-label={`Abrir ${book.meta.title}`}
-        onKeyDown={(e) => e.key === 'Enter' && onOpen(book)}
       >
         {coverUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -146,7 +147,7 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
           />
         ) : (
           <div className="book-card__cover-placeholder">
-            <span className="book-card__cover-icon">📖</span>
+            <BookOpen className="book-card__cover-icon" aria-hidden="true" />
             <span className="book-card__cover-initials">
               {book.meta.title.slice(0, 2).toUpperCase()}
             </span>
@@ -157,7 +158,7 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
         <div className="book-card__cover-overlay">
           <span className="book-card__open-label">Abrir</span>
         </div>
-      </div>
+      </button>
 
       {/* Información */}
       <div className="book-card__info">
@@ -170,7 +171,8 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
         <div className="book-card__meta-row">
           {currentFolder && (
             <span className="book-card__folder-badge">
-              📁 {currentFolder.name}
+              <Folder size={12} aria-hidden="true" />
+              {currentFolder.name}
             </span>
           )}
           <span className="book-card__time">
@@ -179,7 +181,7 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
         </div>
       </div>
 
-      {/* Menú de opciones ⋮ */}
+      {/* Menú de opciones */}
       <div className="book-card__menu-wrapper" ref={menuRef}>
         <button
           className="book-card__menu-btn"
@@ -190,7 +192,7 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
             setShowMovePanel(false);
           }}
         >
-          ⋮
+          <MoreVertical size={18} aria-hidden="true" />
         </button>
 
         {menuOpen && (
@@ -201,26 +203,30 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
                   className="book-card__dropdown-item"
                   onClick={() => onOpen(book)}
                 >
-                  📖 Abrir
+                  <BookOpen size={16} aria-hidden="true" />
+                  Abrir
                 </button>
                 <button
                   className="book-card__dropdown-item"
                   onClick={() => coverInputRef.current?.click()}
                 >
-                  🖼️ Cambiar portada
+                  <ImageIcon size={16} aria-hidden="true" />
+                  Cambiar portada
                 </button>
                 <button
                   className="book-card__dropdown-item"
                   onClick={() => setShowMovePanel(true)}
                 >
-                  📂 Mover a carpeta
+                  <FolderInput size={16} aria-hidden="true" />
+                  Mover a carpeta
                 </button>
                 <div className="book-card__dropdown-divider" />
                 <button
                   className="book-card__dropdown-item book-card__dropdown-item--danger"
                   onClick={handleDelete}
                 >
-                  🗑️ Eliminar
+                  <Trash2 size={16} aria-hidden="true" />
+                  Eliminar
                 </button>
               </>
             ) : (
@@ -229,14 +235,16 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
                   className="book-card__dropdown-item book-card__dropdown-item--back"
                   onClick={() => setShowMovePanel(false)}
                 >
-                  ← Volver
+                  <ArrowLeft size={16} aria-hidden="true" />
+                  Volver
                 </button>
                 <div className="book-card__dropdown-divider" />
                 <button
                   className={`book-card__dropdown-item ${book.folderId === null ? 'book-card__dropdown-item--active' : ''}`}
                   onClick={() => handleMove(null)}
                 >
-                  🏠 Sin carpeta
+                  <House size={16} aria-hidden="true" />
+                  Sin carpeta
                 </button>
                 {folders.map((f: LibraryFolder) => (
                   <button
@@ -244,7 +252,8 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
                     className={`book-card__dropdown-item ${book.folderId === f.id ? 'book-card__dropdown-item--active' : ''}`}
                     onClick={() => handleMove(f.id)}
                   >
-                    📁 {f.name}
+                    <Folder size={16} aria-hidden="true" />
+                    {f.name}
                   </button>
                 ))}
               </>

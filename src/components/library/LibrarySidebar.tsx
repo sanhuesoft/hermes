@@ -1,6 +1,15 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import {
+  Folder,
+  FolderPlus,
+  House,
+  LibraryBig,
+  MoreVertical,
+  Pencil,
+  Trash2,
+} from 'lucide-react';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 
 export default function LibrarySidebar() {
@@ -64,7 +73,10 @@ export default function LibrarySidebar() {
     <aside className="lib-sidebar">
       {/* Header */}
       <div className="lib-sidebar__header">
-        <span className="lib-sidebar__brand">📚 Biblioteca</span>
+        <span className="lib-sidebar__brand">
+          <LibraryBig size={19} aria-hidden="true" />
+          Biblioteca
+        </span>
       </div>
 
       {/* "Todos los libros" */}
@@ -73,7 +85,7 @@ export default function LibrarySidebar() {
         className={`lib-sidebar__item ${selectedFolderId === 'all' ? 'lib-sidebar__item--active' : ''}`}
         onClick={() => setSelectedFolder('all')}
       >
-        <span className="lib-sidebar__item-icon">🏠</span>
+        <House className="lib-sidebar__item-icon" aria-hidden="true" />
         <span className="lib-sidebar__item-label">Todos los libros</span>
         <span className="lib-sidebar__item-count">{books.length}</span>
       </button>
@@ -110,7 +122,7 @@ export default function LibrarySidebar() {
                 setRenameValue(folder.name);
               }}
             >
-              <span className="lib-sidebar__item-icon">📁</span>
+              <Folder className="lib-sidebar__item-icon" aria-hidden="true" />
               <span className="lib-sidebar__item-label">{folder.name}</span>
               <span className="lib-sidebar__item-count">
                 {bookCountFor(folder.id)}
@@ -118,7 +130,7 @@ export default function LibrarySidebar() {
             </button>
           )}
 
-          {/* Botón de opciones (⋮) */}
+          {/* Botón de opciones */}
           {renamingId !== folder.id && (
             <button
               className="lib-sidebar__folder-menu-btn"
@@ -131,7 +143,7 @@ export default function LibrarySidebar() {
                 setContextMenu({ id: folder.id, x: rect.right, y: rect.top });
               }}
             >
-              ⋮
+              <MoreVertical size={17} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -143,7 +155,8 @@ export default function LibrarySidebar() {
         className="lib-sidebar__new-folder-btn"
         onClick={handleAddFolder}
       >
-        <span>＋</span> Nueva carpeta
+        <FolderPlus size={17} aria-hidden="true" />
+        Nueva carpeta
       </button>
 
       {/* Menú contextual de carpeta */}
@@ -164,7 +177,8 @@ export default function LibrarySidebar() {
               setContextMenu(null);
             }}
           >
-            ✏️ Renombrar
+            <Pencil size={15} aria-hidden="true" />
+            Renombrar
           </button>
           <button
             className="lib-context-menu__item lib-context-menu__item--danger"
@@ -180,7 +194,8 @@ export default function LibrarySidebar() {
               setContextMenu(null);
             }}
           >
-            🗑️ Eliminar
+            <Trash2 size={15} aria-hidden="true" />
+            Eliminar
           </button>
         </div>
       )}

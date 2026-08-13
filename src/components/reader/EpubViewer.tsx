@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Epub, { Book, Rendition } from 'epubjs';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useTtsStore } from '@/stores/useTtsStore';
@@ -24,6 +25,8 @@ interface EpubViewerProps {
   initialCfi?: string | null;
   /** Callback para guardar el progreso periódicamente */
   onProgressUpdate?: (cfi: string) => void;
+  /** Callback cuando se hace hover sobre un resaltado (para mostrar nota) */
+  onHighlightHover?: (highlight: Highlight | null, position?: { x: number; y: number }) => void;
 }
 
 const THEME_CSS: Record<string, Record<string, string>> = {
@@ -58,6 +61,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   highlights,
   initialCfi,
   onProgressUpdate,
+  onHighlightHover,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
@@ -71,6 +75,12 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const sectionParagraphsMapRef = useRef<Map<string, string[]>>(new Map());
   // Ref para rastrear los highlights ya renderizados
   const renderedHighlightsRef = useRef<Set<string>>(new Set());
+  // Ref para mantener los highlights actuales accesibles a los listeners
+  const highlightsRef = useRef<Highlight[]>(highlights);
+
+  useEffect(() => {
+    highlightsRef.current = highlights;
+  }, [highlights]);
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
   const { activeParagraphIndex, activeSentenceIndex, paragraphs: ttsParagraphs, status: ttsStatus, setParagraphs } = useTtsStore();
@@ -111,7 +121,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         manager: 'continuous',
         flow: 'paginated',
         spread: 'auto',
-        allowScriptedContent: true,
+        allowScriptedContent: false,
       });
       renditionRef.current = rendition;
 
@@ -247,10 +257,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
           const target = e.target as Element;
           if (!target.closest('[data-paragraph-index]')) return;
-          
+
           const paragraphs = sectionParagraphsMapRef.current.get(cleanHref) || [];
           const pos = getSentenceIndexFromPoint(iframeDocument, e.clientX, e.clientY, []);
-          
+
           if (pos && pos.paragraphIndex >= 0) {
              const pText = paragraphs[pos.paragraphIndex] || '';
              const sentences = splitIntoSentences(pText);
@@ -294,18 +304,82 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         const docAny = iframeDocument as Document & { 
           _ttsClickHandler?: EventListener;
           _ttsMoveHandler?: EventListener;
+          _hlMoveHandler?: EventListener;
+          _hlOutHandler?: EventListener;
         };
         
         if (docAny._ttsClickHandler) {
           iframeDocument.removeEventListener('click', docAny._ttsClickHandler);
           iframeDocument.removeEventListener('mousemove', docAny._ttsMoveHandler as EventListener);
+          iframeDocument.removeEventListener('mouseover', docAny._hlMoveHandler as EventListener);
+          iframeDocument.removeEventListener('mouseout', docAny._hlOutHandler as EventListener);
         }
-        
+
+        // --- Highlight Hover Logic ---
+        let hlHoverTimeout: any = null;
+        const handleHighlightMouseOver = (e: MouseEvent) => {
+          const target = e.target as Element;
+          // Epubjs agrega el atributo data-epubjs-annotation a las marcas de resaltado,
+          // o podemos buscar nuestra clase personalizada `custom-hl-[id]`
+          const annotationMark = target.closest('[data-epubjs-annotation]') || target;
+
+          let matchId: string | null = null;
+
+          if (annotationMark.hasAttribute('data-epubjs-annotation')) {
+             const cfi = annotationMark.getAttribute('data-epubjs-annotation');
+             const h = highlightsRef.current.find(h => h.cfiRange === cfi);
+             if (h) matchId = h.id;
+          }
+
+          if (!matchId) {
+            // Check for custom class
+            const matchClass = Array.from(annotationMark.classList || []).find(c => c.startsWith('custom-hl-'));
+            if (matchClass) {
+              matchId = matchClass.replace('custom-hl-', '');
+            } else if (target.parentElement) {
+              const parentClass = Array.from(target.parentElement.classList || []).find(c => c.startsWith('custom-hl-'));
+              if (parentClass) matchId = parentClass.replace('custom-hl-', '');
+            }
+          }
+
+          if (matchId) {
+            const match = highlightsRef.current.find(h => h.id === matchId);
+            if (match && match.note) {
+              if (hlHoverTimeout) clearTimeout(hlHoverTimeout);
+              hlHoverTimeout = setTimeout(() => {
+                // Calcular posición
+                const rect = annotationMark.getBoundingClientRect();
+                const iframeRect = iframeDocument.defaultView?.frameElement?.getBoundingClientRect();
+
+                onHighlightHover?.(match, {
+                  x: rect.left + (iframeRect ? iframeRect.left : 0),
+                  y: rect.bottom + (iframeRect ? iframeRect.top : 0)
+                });
+              }, 200);
+            }
+          }
+        };
+
+        const handleHighlightMouseOut = (e: MouseEvent) => {
+          const target = e.target as Element;
+          if (target.closest('[data-epubjs-annotation]') || Array.from(target.classList || []).some(c => c.startsWith('custom-hl-')) || (target.parentElement && Array.from(target.parentElement.classList || []).some(c => c.startsWith('custom-hl-')))) {
+            if (hlHoverTimeout) clearTimeout(hlHoverTimeout);
+            hlHoverTimeout = setTimeout(() => {
+              onHighlightHover?.(null);
+            }, 300);
+          }
+        };
+        // -----------------------------
+
         docAny._ttsClickHandler = handleParagraphClick as EventListener;
         docAny._ttsMoveHandler = handleMouseMove as EventListener;
-        
+        docAny._hlMoveHandler = handleHighlightMouseOver as EventListener;
+        docAny._hlOutHandler = handleHighlightMouseOut as EventListener;
+
         iframeDocument.addEventListener('click', handleParagraphClick as EventListener);
         iframeDocument.addEventListener('mousemove', handleMouseMove as EventListener);
+        iframeDocument.addEventListener('mouseover', handleHighlightMouseOver as EventListener);
+        iframeDocument.addEventListener('mouseout', handleHighlightMouseOut as EventListener);
       });
 
       // Evento de reubicación: guardar progreso + sincronizar TTS
@@ -400,6 +474,48 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         book.loaded.navigation,
       ]);
 
+      // --- Highlight Hover on Global Container (for SVG overlays) ---
+      let containerHoverTimeout: any = null;
+      const handleContainerMouseOver = (e: MouseEvent) => {
+        const target = e.target as Element;
+        let matchId: string | null = null;
+        
+        const matchClass = Array.from(target.classList || []).find(c => c.startsWith('custom-hl-'));
+        if (matchClass) {
+          matchId = matchClass.replace('custom-hl-', '');
+        } else if (target.parentElement) {
+          const parentClass = Array.from(target.parentElement.classList || []).find(c => c.startsWith('custom-hl-'));
+          if (parentClass) matchId = parentClass.replace('custom-hl-', '');
+        }
+
+        if (matchId) {
+          const match = highlightsRef.current.find(h => h.id === matchId);
+          if (match && match.note) {
+            if (containerHoverTimeout) clearTimeout(containerHoverTimeout);
+            containerHoverTimeout = setTimeout(() => {
+              const rect = target.getBoundingClientRect();
+              onHighlightHover?.(match, { x: rect.left, y: rect.bottom });
+            }, 200);
+          }
+        }
+      };
+
+      const handleContainerMouseOut = (e: MouseEvent) => {
+        const target = e.target as Element;
+        if (Array.from(target.classList || []).some(c => c.startsWith('custom-hl-')) || (target.parentElement && Array.from(target.parentElement.classList || []).some(c => c.startsWith('custom-hl-')))) {
+          if (containerHoverTimeout) clearTimeout(containerHoverTimeout);
+          containerHoverTimeout = setTimeout(() => {
+            onHighlightHover?.(null);
+          }, 300);
+        }
+      };
+
+      containerRef.current?.addEventListener('mouseover', handleContainerMouseOver as EventListener);
+      containerRef.current?.addEventListener('mouseout', handleContainerMouseOut as EventListener);
+      (book as any)._hlHoverHandler = handleContainerMouseOver;
+      (book as any)._hlOutHandler = handleContainerMouseOut;
+      // -------------------------------------------------------------
+
       const coverUrl = await book.coverUrl().catch(() => undefined);
 
       const meta: EpubMeta = {
@@ -428,6 +544,12 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       if (bookRef.current) {
         const handler = (bookRef.current as any)._globalKeyHandler;
         if (handler) window.removeEventListener('keydown', handler);
+
+        const hlHover = (bookRef.current as any)._hlHoverHandler;
+        const hlOut = (bookRef.current as any)._hlOutHandler;
+        if (hlHover && containerRef.current) containerRef.current.removeEventListener('mouseover', hlHover);
+        if (hlOut && containerRef.current) containerRef.current.removeEventListener('mouseout', hlOut);
+
         bookRef.current.destroy();
         bookRef.current = null;
         renditionRef.current = null;
@@ -505,9 +627,9 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
             hl.cfiRange,
             {},
             (e: Event) => {
-              console.log('Highlight clicked', hl);
+              // Si se hace clic, también podemos mostrar/ocultar o hacer scroll
             },
-            undefined,
+            `custom-hl-${hl.id}`,
             { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
           );
           renderedHighlightsRef.current.add(hl.id);
@@ -594,7 +716,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           className="epub-nav-btn pointer-events-auto"
           title="Página anterior"
         >
-          ‹
+          <ChevronLeft size={26} aria-hidden="true" />
         </button>
         <button
           id="epub-next-page"
@@ -603,7 +725,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           className="epub-nav-btn pointer-events-auto"
           title="Página siguiente"
         >
-          ›
+          <ChevronRight size={26} aria-hidden="true" />
         </button>
       </div>
     </div>

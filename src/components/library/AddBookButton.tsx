@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import { LoaderCircle, Plus, X } from 'lucide-react';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import type { EpubMeta } from '@/types/epub';
 
@@ -61,14 +62,6 @@ async function parseEpubMeta(
   // Portada — extraemos los bytes reales en lugar de guardar el blob URL
   const coverData = await extractCoverBytes(book);
 
-  // Generar blob URL temporal para mostrar en UI inmediatamente
-  // (se regenera en BookCard.tsx al montar el componente desde coverData)
-  let coverUrl: string | undefined;
-  if (coverData) {
-    const blob = new Blob([coverData]);
-    coverUrl = URL.createObjectURL(blob);
-  }
-
   book.destroy();
 
   return {
@@ -78,7 +71,7 @@ async function parseEpubMeta(
       identifier: rawMeta.identifier || `file-${Date.now()}`,
       language: rawMeta.language || 'es',
       publisher: rawMeta.publisher,
-      cover: coverUrl,
+      cover: undefined,
     },
     coverData,
   };
@@ -126,9 +119,9 @@ export default function AddBookButton({ onBookAdded }: AddBookButtonProps) {
         disabled={isProcessing}
       >
         {isProcessing ? (
-          <span className="lib-add-btn__spinner" />
+          <LoaderCircle className="lib-add-btn__spinner icon-spin" aria-hidden="true" />
         ) : (
-          <span className="lib-add-btn__icon">＋</span>
+          <Plus className="lib-add-btn__icon" aria-hidden="true" />
         )}
       </button>
 
@@ -140,7 +133,7 @@ export default function AddBookButton({ onBookAdded }: AddBookButtonProps) {
             onClick={() => setError(null)}
             aria-label="Cerrar error"
           >
-            ✕
+            <X size={16} aria-hidden="true" />
           </button>
         </div>
       )}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { LogOut, MoreHorizontal, X } from 'lucide-react';
 import { useReaderStore } from '@/stores/useReaderStore';
 
 interface ZenOverlayProps {
@@ -24,9 +25,11 @@ export default function ZenOverlay({ children }: ZenOverlayProps) {
             aria-label="Abrir controles"
             className="zen-fab"
           >
-            <span className="zen-fab-icon">
-              {panelOpen ? '✕' : '⋯'}
-            </span>
+            {panelOpen ? (
+              <X className="zen-fab-icon" aria-hidden="true" />
+            ) : (
+              <MoreHorizontal className="zen-fab-icon" aria-hidden="true" />
+            )}
           </button>
 
           {/* Panel flotante */}
@@ -37,6 +40,7 @@ export default function ZenOverlay({ children }: ZenOverlayProps) {
                 onClick={() => { toggleZenMode(); setPanelOpen(false); }}
                 className="zen-panel-btn"
               >
+                <LogOut size={16} aria-hidden="true" />
                 Salir del modo Zen
               </button>
             </div>
