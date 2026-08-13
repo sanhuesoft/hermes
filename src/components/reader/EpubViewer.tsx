@@ -55,8 +55,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   file,
   onBookLoaded,
   onHighlightRequest,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  highlights: _highlights,
+  highlights,
   initialCfi,
   onProgressUpdate,
 }, ref) {
@@ -70,6 +69,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Mapa local de párrafos por sección para evitar que precargas de otros capítulos pisen el actual
   const sectionParagraphsMapRef = useRef<Map<string, string[]>>(new Map());
+  // Ref para rastrear los highlights ya renderizados
+  const renderedHighlightsRef = useRef<Set<string>>(new Set());
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
   const { activeParagraphIndex, activeSentenceIndex, paragraphs: ttsParagraphs, status: ttsStatus, setParagraphs } = useTtsStore();
@@ -87,6 +88,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
       // Limpiar contenedor físico
       containerRef.current.innerHTML = '';
+      renderedHighlightsRef.current.clear();
 
       if (bookRef.current) {
         bookRef.current.destroy();
@@ -479,6 +481,42 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
     prevParagraphIndexRef.current = activeParagraphIndex;
   }, [activeParagraphIndex, activeSentenceIndex, ttsParagraphs]);
+
+  // -------------------------------------------------------
+  // Render highlights
+  // -------------------------------------------------------
+  useEffect(() => {
+    if (!renditionRef.current) return;
+    const rendition = renditionRef.current;
+
+    highlights.forEach((hl) => {
+      if (!renderedHighlightsRef.current.has(hl.id)) {
+        try {
+          // Extraer color real basado en el ID del color o usar el valor si es un color válido
+          const colorMap: Record<string, string> = {
+            yellow: '#ffc701',
+            green: '#c7e372',
+            blue: '#9ad0dc',
+            pink: '#ef5a68'
+          };
+          const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
+
+          rendition.annotations.highlight(
+            hl.cfiRange,
+            {},
+            (e: Event) => {
+              console.log('Highlight clicked', hl);
+            },
+            undefined,
+            { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
+          );
+          renderedHighlightsRef.current.add(hl.id);
+        } catch (e) {
+          console.warn('[EpubViewer] Error rendering highlight:', e);
+        }
+      }
+    });
+  }, [highlights]);
 
   // -------------------------------------------------------
   // Navegación

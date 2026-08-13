@@ -12,14 +12,16 @@ interface LibraryViewProps {
 }
 
 export default function LibraryView({ onOpenBook }: LibraryViewProps) {
-  const { loadLibrary, filteredBooks, isLoading, selectedFolderId, folders } =
+  const { loadLibrary, isLoading, selectedFolderId, folders, books: allBooks } =
     useLibraryStore();
 
   useEffect(() => {
     loadLibrary();
   }, [loadLibrary]);
 
-  const books = filteredBooks();
+  const books = selectedFolderId === 'all' 
+    ? allBooks 
+    : allBooks.filter(b => b.folderId === selectedFolderId);
 
   const sectionTitle =
     selectedFolderId === 'all'
