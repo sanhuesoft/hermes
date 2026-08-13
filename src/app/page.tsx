@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useLibraryStore } from '@/stores/useLibraryStore';
 import { useTtsStore } from '@/stores/useTtsStore';
-import type { EpubMeta, Chapter, Highlight, HighlightColor, LibraryBook } from '@/types/epub';
+import type { EpubMeta, Chapter, Highlight, HighlightColor, LibraryBook, Bookmark } from '@/types/epub';
 import type { EpubViewerHandle } from '@/components/reader/EpubViewer';
 import VoiceSelector from '@/components/tts/VoiceSelector';
 import TtsControls from '@/components/tts/TtsControls';
@@ -44,6 +44,7 @@ export default function Home() {
   const [bookMeta, setBookMeta] = useState<EpubMeta | null>(null);
   const [toc, setToc] = useState<Chapter[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
+  const [bookmarks, setBookmarks] = useState<Bookmark[]>([]);
 
   // -------------------------------------------------------
   // Estado de UI del lector
@@ -59,7 +60,7 @@ export default function Home() {
   const viewerRef = useRef<EpubViewerHandle>(null);
 
   const { theme, isZenMode, toggleZenMode } = useReaderStore();
-  const { openBook, updateHighlights, updateProgress } = useLibraryStore();
+  const { openBook, updateHighlights, updateBookmarks, updateProgress } = useLibraryStore();
 
   // Aplicar data-theme al html para que las CSS vars funcionen
   useEffect(() => {
@@ -76,6 +77,7 @@ export default function Home() {
 
       setActiveBookId(target.id);
       setHighlights(target.highlights ?? []);
+      setBookmarks(target.bookmarks ?? []);
       setFileBuffer(target.fileData);
       setInitialCfi(target.lastCfi ?? null); // restaurar posición guardada
       setBookMeta(null);
@@ -92,6 +94,7 @@ export default function Home() {
   const handleCloseReader = useCallback(async () => {
     if (activeBookId) {
       await updateHighlights(activeBookId, highlights);
+      await updateBookmarks(activeBookId, bookmarks);
     }
     setActiveView('library');
     setActiveBookId(null);
@@ -101,7 +104,8 @@ export default function Home() {
     setBookMeta(null);
     setToc([]);
     setHighlights([]);
-  }, [activeBookId, highlights, updateHighlights]);
+    setBookmarks([]);
+  }, [activeBookId, highlights, bookmarks, updateHighlights, updateBookmarks]);
 
   // -------------------------------------------------------
   // Highlights
@@ -124,6 +128,31 @@ export default function Home() {
     },
     [highlightRequest]
   );
+
+  // -------------------------------------------------------
+  // Bookmarks
+  // -------------------------------------------------------
+  const handleToggleBookmark = useCallback(() => {
+    const cfi = viewerRef.current?.getCurrentCfi();
+    if (!cfi) return;
+
+    setBookmarks((prev) => {
+      // Simplistic check to see if we already have one near this CFI
+      // A more robust check could parse CFIs, but for now exact match or close enough is fine
+      const exists = prev.find(b => b.cfi === cfi);
+      if (exists) {
+        return prev.filter(b => b.id !== exists.id);
+      } else {
+        const newBookmark: Bookmark = {
+          id: `bm_${Date.now()}`,
+          cfi,
+          label: `Marcador en posición`,
+          createdAt: new Date().toISOString(),
+        };
+        return [...prev, newBookmark];
+      }
+    });
+  }, []);
 
   // -------------------------------------------------------
   // Exportar / Importar sidecar
@@ -233,6 +262,17 @@ export default function Home() {
             onChange={handleImportSidecar}
           />
 
+          {/* Añadir marcador */}
+          <button
+            id="reader-bookmark-btn"
+            className="reader-header__btn"
+            onClick={handleToggleBookmark}
+            title="Añadir marcador"
+            aria-label="Añadir marcador"
+          >
+            🔖
+          </button>
+
           {/* Modo Zen */}
           <button
             id="reader-zen-btn"
@@ -275,6 +315,25 @@ export default function Home() {
                 {chapter.label}
               </button>
             ))}
+
+            {bookmarks.length > 0 && (
+              <>
+                <p className="toc-title" style={{ marginTop: '1.5rem' }}>Marcadores</p>
+                {bookmarks.map((bm) => (
+                  <button
+                    key={bm.id}
+                    className="toc-item"
+                    title={bm.label}
+                    onClick={() => {
+                      viewerRef.current?.goToChapter(bm.cfi);
+                      setSidebarOpen(false);
+                    }}
+                  >
+                    🔖 {new Date(bm.createdAt).toLocaleDateString()} {new Date(bm.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </button>
+                ))}
+              </>
+            )}
           </aside>
 
           {/* Área de lectura */}

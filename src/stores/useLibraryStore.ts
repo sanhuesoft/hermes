@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import type { LibraryBook, LibraryFolder, EpubMeta, Highlight } from '@/types/epub';
+import type { LibraryBook, LibraryFolder, EpubMeta, Highlight, Bookmark } from '@/types/epub';
 import {
   getBooks,
   getBook,
@@ -42,6 +42,7 @@ interface LibraryStore {
   moveBook: (bookId: string, folderId: string | null) => Promise<void>;
   removeBook: (id: string) => Promise<void>;
   updateHighlights: (bookId: string, highlights: Highlight[]) => Promise<void>;
+  updateBookmarks: (bookId: string, bookmarks: Bookmark[]) => Promise<void>;
   updateCover: (bookId: string, coverData: ArrayBuffer) => Promise<void>;
   updateProgress: (bookId: string, cfi: string) => Promise<void>;
 
@@ -107,6 +108,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       lastOpenedAt: null,
       lastCfi: null,
       highlights: [],
+      bookmarks: [],
     };
     await saveBook(book);
     set((state) => ({
@@ -151,6 +153,16 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     const book = get().books.find((b) => b.id === bookId);
     if (!book) return;
     const updated = { ...book, highlights };
+    await saveBook(updated);
+    set((state) => ({
+      books: state.books.map((b) => (b.id === bookId ? updated : b)),
+    }));
+  },
+
+  updateBookmarks: async (bookId, bookmarks) => {
+    const book = get().books.find((b) => b.id === bookId);
+    if (!book) return;
+    const updated = { ...book, bookmarks };
     await saveBook(updated);
     set((state) => ({
       books: state.books.map((b) => (b.id === bookId ? updated : b)),

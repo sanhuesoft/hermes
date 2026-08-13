@@ -2,10 +2,10 @@ import type { Rendition } from 'epubjs';
 import type { Highlight, HighlightColor } from '@/types/epub';
 
 const COLOR_MAP: Record<HighlightColor, string> = {
-  yellow: 'rgba(255, 235, 59, 0.4)',
-  green:  'rgba(76, 175, 80, 0.35)',
-  blue:   'rgba(33, 150, 243, 0.35)',
-  pink:   'rgba(233, 30, 99, 0.35)',
+  yellow: 'rgba(255, 199, 1, 0.4)',
+  green:  'rgba(199, 227, 114, 0.4)',
+  blue:   'rgba(154, 208, 220, 0.4)',
+  pink:   'rgba(239, 90, 104, 0.4)',
 };
 
 /**
@@ -61,26 +61,55 @@ export function restoreHighlights(rendition: Rendition, highlights: Highlight[])
 }
 
 /**
- * Aplica resaltado de párrafo activo TTS (se remueve al avanzar).
+ * Aplica resaltado de frase/párrafo activo TTS (se remueve al avanzar).
  */
 export function highlightActiveParagraph(
   iframeDocument: Document,
   index: number,
-  previousIndex?: number
+  sentenceText?: string
 ): void {
-  if (previousIndex !== undefined) {
-    const prev = iframeDocument.querySelector<HTMLElement>(
-      `[data-paragraph-index="${previousIndex}"]`
-    );
-    if (prev) {
-      prev.style.backgroundColor = '';
-    }
+  // 1. Limpiar todos los resaltados anteriores (fondo heredado y Custom Highlights)
+  const prevs = iframeDocument.querySelectorAll('[data-paragraph-index]');
+  prevs.forEach((el) => {
+    (el as HTMLElement).style.backgroundColor = '';
+  });
+
+  const iframeWindow = iframeDocument.defaultView as any;
+  if (iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
+    iframeWindow.CSS.highlights.delete('tts-active');
   }
 
+  // 2. Buscar el párrafo actual
   const current = iframeDocument.querySelector<HTMLElement>(
     `[data-paragraph-index="${index}"]`
   );
-  if (current) {
-    current.style.backgroundColor = 'rgba(255, 235, 59, 0.35)';
+  if (!current) return;
+
+  // 3. Intentar aplicar Custom Highlight a la frase exacta
+  if (sentenceText && sentenceText.trim() !== '' && iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
+    const range = iframeDocument.createRange();
+    let found = false;
+    
+    // Búsqueda simple en nodos de texto (funciona en párrafos sin HTML anidado complejo)
+    const walker = iframeDocument.createTreeWalker(current, NodeFilter.SHOW_TEXT);
+    let node;
+    while ((node = walker.nextNode())) {
+      if (node.textContent && node.textContent.includes(sentenceText)) {
+        const start = node.textContent.indexOf(sentenceText);
+        range.setStart(node, start);
+        range.setEnd(node, start + sentenceText.length);
+        found = true;
+        break;
+      }
+    }
+    
+    if (found) {
+      const highlight = new iframeWindow.Highlight(range);
+      iframeWindow.CSS.highlights.set('tts-active', highlight);
+      return;
+    }
   }
+
+  // 4. Fallback: Resaltar todo el párrafo con gris suave si no hay API o no se encontró la frase
+  current.style.backgroundColor = 'rgba(212, 221, 218, 0.4)';
 }

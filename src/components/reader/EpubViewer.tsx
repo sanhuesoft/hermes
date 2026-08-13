@@ -12,6 +12,7 @@ export interface EpubViewerHandle {
   goToChapter: (href: string) => void;
   nextPage: () => void;
   prevPage: () => void;
+  getCurrentCfi: () => string | undefined;
 }
 
 interface EpubViewerProps {
@@ -71,7 +72,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const sectionParagraphsMapRef = useRef<Map<string, string[]>>(new Map());
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
-  const { activeParagraphIndex, status: ttsStatus, setParagraphs } = useTtsStore();
+  const { activeParagraphIndex, activeSentenceIndex, paragraphs: ttsParagraphs, status: ttsStatus, setParagraphs } = useTtsStore();
 
   const ttsActive = ttsStatus === 'playing' || ttsStatus === 'loading';
 
@@ -221,20 +222,28 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           useTtsStore.getState().setParagraphs(paragraphs);
         }
 
-        // Inyectar estilos de cursor + hover para párrafos clicables
+        // Inyectar estilos de cursor + hover para párrafos clicables y FUENTES
         const styleId = 'tts-paragraph-click-styles';
         if (!iframeDocument.getElementById(styleId)) {
           const style = iframeDocument.createElement('style');
           style.id = styleId;
           style.textContent = `
+            @import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap');
+            @import url('https://fonts.cdnfonts.com/css/opendyslexic');
+
             [data-paragraph-index] {
               cursor: pointer;
               border-radius: 3px;
               transition: background-color 0.15s;
             }
             [data-paragraph-index]:hover {
-              background-color: rgba(99, 102, 241, 0.08) !important;
-              outline: 1px solid rgba(99, 102, 241, 0.2);
+              background-color: rgba(212, 221, 218, 0.4) !important;
+              outline: 1px dashed rgba(212, 221, 218, 0.8);
+            }
+
+            ::highlight(tts-active) {
+              background-color: #d4ddda;
+              color: inherit;
             }
           `;
           (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
@@ -410,10 +419,20 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     const iframe = containerRef.current?.querySelector('iframe');
     if (!iframe?.contentDocument || !iframe.contentWindow) return;
 
+    const currentText = ttsParagraphs[activeParagraphIndex] || '';
+    let sentenceText = currentText;
+    if (currentText.length > 200) {
+      const sentences = currentText.match(/[^.!?]+[.!?]+(\s|$)/g);
+      if (sentences && sentences.length > 1) {
+        const textChunks = sentences.map(s => s.trim()).filter(s => s.length > 0);
+        sentenceText = textChunks[activeSentenceIndex] || sentenceText;
+      }
+    }
+
     highlightActiveParagraph(
       iframe.contentDocument,
       activeParagraphIndex,
-      prevParagraphIndexRef.current
+      sentenceText
     );
 
     // Auto-paginación: si el párrafo activo está fuera de la pantalla visible, navegar
@@ -432,7 +451,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     }
 
     prevParagraphIndexRef.current = activeParagraphIndex;
-  }, [activeParagraphIndex]);
+  }, [activeParagraphIndex, activeSentenceIndex, ttsParagraphs]);
 
   // -------------------------------------------------------
   // Navegación
@@ -485,6 +504,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     goToChapter,
     nextPage,
     prevPage,
+    getCurrentCfi: () => {
+      const location = renditionRef.current?.location as any;
+      return location?.start?.cfi;
+    }
   }));
 
   return (

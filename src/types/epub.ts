@@ -12,6 +12,13 @@ export interface LibraryFolder {
   createdAt: string;
 }
 
+export interface Bookmark {
+  id: string;
+  cfi: string;
+  label: string;
+  createdAt: string;
+}
+
 export interface LibraryBook {
   id: string;
   folderId: string | null; // null = sin carpeta
@@ -23,6 +30,7 @@ export interface LibraryBook {
   lastOpenedAt: string | null;
   lastCfi: string | null;  // posición exacta de lectura (epubcfi) para restaurar progreso
   highlights: Highlight[];
+  bookmarks: Bookmark[];
 }
 
 

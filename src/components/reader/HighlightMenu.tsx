@@ -11,10 +11,10 @@ interface HighlightMenuProps {
 }
 
 const COLORS: { id: HighlightColor; label: string; bg: string }[] = [
-  { id: 'yellow', label: 'Amarillo', bg: '#FEF08A' },
-  { id: 'green',  label: 'Verde',    bg: '#BBF7D0' },
-  { id: 'blue',   label: 'Azul',     bg: '#BFDBFE' },
-  { id: 'pink',   label: 'Rosa',     bg: '#FBCFE8' },
+  { id: 'yellow', label: 'Amarillo', bg: '#ffc701' },
+  { id: 'green',  label: 'Verde',    bg: '#c7e372' },
+  { id: 'blue',   label: 'Azul',     bg: '#9ad0dc' },
+  { id: 'pink',   label: 'Rosa',     bg: '#ef5a68' },
 ];
 
 export default function HighlightMenu({
