@@ -85,3 +85,17 @@ export function extractParagraphs(iframeDocument: Document): string[] {
 
   return paragraphs;
 }
+
+/**
+ * Divide un texto en frases para procesar TTS.
+ */
+export function splitIntoSentences(text: string): string[] {
+  if (!text) return [];
+  // Divide por puntuación (., !, ?) manteniendo el resto de la frase o cualquier texto remanente
+  const sentenceRegex = /[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g;
+  const match = text.match(sentenceRegex);
+  if (match) {
+    return match.map(s => s.trim()).filter(s => s.length > 0);
+  }
+  return [text.trim()].filter(Boolean);
+}

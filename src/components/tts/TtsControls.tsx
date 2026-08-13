@@ -3,6 +3,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { synthesizeSpeech } from '@/lib/tts/edge-tts-client';
+import { splitIntoSentences } from '@/lib/epub/parser';
 
 export default function TtsControls() {
   const {
@@ -165,18 +166,8 @@ export default function TtsControls() {
     // Disparar precarga en segundo plano de los siguientes 5 párrafos
     prefetchNextParagraphs(indexToPlay, selectedVoice.ShortName, currentPlayId);
 
-    // Chunking inteligente a nivel reproductor
-    let textChunks: string[] = [];
-    if (currentText.length > 200) {
-      const sentences = currentText.match(/[^.!?]+[.!?]+(\s|$)/g);
-      if (sentences && sentences.length > 1) {
-        textChunks = sentences.map(s => s.trim()).filter(s => s.length > 0);
-      } else {
-        textChunks = [currentText];
-      }
-    } else {
-      textChunks = [currentText];
-    }
+    // Chunking inteligente a nivel reproductor: dividimos SIEMPRE por frases para mejor usabilidad
+    let textChunks: string[] = splitIntoSentences(currentText);
 
     try {
       let blobUrls: string[] = [];

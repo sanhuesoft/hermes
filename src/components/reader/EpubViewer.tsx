@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 
 import Epub, { Book, Rendition } from 'epubjs';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useTtsStore } from '@/stores/useTtsStore';
-import { extractParagraphs } from '@/lib/epub/parser';
+import { extractParagraphs, splitIntoSentences } from '@/lib/epub/parser';
 import { highlightActiveParagraph } from '@/lib/epub/highlight-manager';
 import type { EpubMeta, Chapter, Highlight } from '@/types/epub';
 
@@ -420,27 +420,17 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     if (!iframe?.contentDocument || !iframe.contentWindow) return;
 
     const currentText = ttsParagraphs[activeParagraphIndex] || '';
-    let sentenceText = currentText;
-    if (currentText.length > 200) {
-      const sentences = currentText.match(/[^.!?]+[.!?]+(\s|$)/g);
-      if (sentences && sentences.length > 1) {
-        const textChunks = sentences.map(s => s.trim()).filter(s => s.length > 0);
-        sentenceText = textChunks[activeSentenceIndex] || sentenceText;
-      }
-    }
+    const textChunks = splitIntoSentences(currentText);
+    const sentenceText = textChunks[activeSentenceIndex] || currentText;
 
-    highlightActiveParagraph(
+    const rect = highlightActiveParagraph(
       iframe.contentDocument,
       activeParagraphIndex,
       sentenceText
     );
 
-    // Auto-paginación: si el párrafo activo está fuera de la pantalla visible, navegar
-    const currentEl = iframe.contentDocument.querySelector<HTMLElement>(
-      `[data-paragraph-index="${activeParagraphIndex}"]`
-    );
-    if (currentEl && useTtsStore.getState().status === 'playing') {
-      const rect = currentEl.getBoundingClientRect();
+    // Auto-paginación: si la frase o párrafo activo está fuera de la pantalla visible, navegar
+    if (rect && useTtsStore.getState().status === 'playing') {
       const viewportWidth = iframe.contentWindow.innerWidth;
 
       if (rect.left >= viewportWidth) {

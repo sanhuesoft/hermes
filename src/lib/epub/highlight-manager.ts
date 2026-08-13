@@ -67,7 +67,7 @@ export function highlightActiveParagraph(
   iframeDocument: Document,
   index: number,
   sentenceText?: string
-): void {
+): DOMRect | null {
   // 1. Limpiar todos los resaltados anteriores (fondo heredado y Custom Highlights)
   const prevs = iframeDocument.querySelectorAll('[data-paragraph-index]');
   prevs.forEach((el) => {
@@ -83,7 +83,7 @@ export function highlightActiveParagraph(
   const current = iframeDocument.querySelector<HTMLElement>(
     `[data-paragraph-index="${index}"]`
   );
-  if (!current) return;
+  if (!current) return null;
 
   // 3. Intentar aplicar Custom Highlight a la frase exacta
   if (sentenceText && sentenceText.trim() !== '' && iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
@@ -106,10 +106,11 @@ export function highlightActiveParagraph(
     if (found) {
       const highlight = new iframeWindow.Highlight(range);
       iframeWindow.CSS.highlights.set('tts-active', highlight);
-      return;
+      return range.getBoundingClientRect();
     }
   }
 
   // 4. Fallback: Resaltar todo el párrafo con gris suave si no hay API o no se encontró la frase
   current.style.backgroundColor = 'rgba(212, 221, 218, 0.4)';
+  return current.getBoundingClientRect();
 }
