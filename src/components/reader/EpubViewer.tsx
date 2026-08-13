@@ -92,9 +92,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   }, [onLocationChange]);
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
-  const { activeParagraphIndex, activeSentenceIndex, paragraphs: ttsParagraphs, status: ttsStatus, setParagraphs } = useTtsStore();
-
-  const ttsActive = ttsStatus === 'playing' || ttsStatus === 'loading';
+  const { setParagraphs } = useTtsStore();
 
   // -------------------------------------------------------
   // Cargar el libro
@@ -225,35 +223,48 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           useTtsStore.getState().setParagraphs(paragraphs);
         }
 
-        // Re-aplicar highlights en la sección recién renderizada
-        // (necesario al cargar página o navegar entre capítulos)
+        // Re-aplicar highlights de usuario DESPUÉS de que el DOM se haya estabilizado.
+        // Usamos setTimeout(0) para que las anotaciones se apliquen en un tick posterior
+        // al de extractParagraphs, evitando que epubjs borre los data-paragraph-index.
         const currentHighlights = highlightsRef.current;
-        const colorMap: Record<string, string> = {
-          yellow: '#ffc701',
-          green: '#c7e372',
-          blue: '#9ad0dc',
-          pink: '#ef5a68',
-        };
-        currentHighlights.forEach((hl) => {
-          // Marcar como no renderizado para forzar re-render en esta sección
-          renderedHighlightsRef.current.delete(hl.id);
-          try {
-            rendition.annotations.remove(hl.cfiRange, 'highlight');
-          } catch (_) { /* ignorar si no existía */ }
-          try {
-            const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
-            rendition.annotations.highlight(
-              hl.cfiRange,
-              {},
-              () => {},
-              `custom-hl-${hl.id}`,
-              { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
-            );
-            renderedHighlightsRef.current.add(hl.id);
-          } catch (e) {
-            console.warn('[EpubViewer] Error re-rendering highlight on rendered:', e);
-          }
-        });
+        if (currentHighlights.length > 0) {
+          setTimeout(() => {
+            const colorMap: Record<string, string> = {
+              yellow: '#ffc701',
+              green: '#c7e372',
+              blue: '#9ad0dc',
+              pink: '#ef5a68',
+            };
+            currentHighlights.forEach((hl) => {
+              renderedHighlightsRef.current.delete(hl.id);
+              try {
+                rendition.annotations.remove(hl.cfiRange, 'highlight');
+              } catch (_) { /* ignorar si no existía */ }
+              try {
+                const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
+                rendition.annotations.highlight(
+                  hl.cfiRange,
+                  {},
+                  () => {},
+                  `custom-hl-${hl.id}`,
+                  { fill: highlightColor, 'fill-opacity': '0.3', 'mix-blend-mode': 'multiply' }
+                );
+                renderedHighlightsRef.current.add(hl.id);
+              } catch (e) {
+                console.warn('[EpubViewer] Error re-rendering highlight on rendered:', e);
+              }
+            });
+
+            // Re-asignar data-paragraph-index DESPUÉS de que las anotaciones estén pintadas,
+            // para que el TTS siempre encuentre los atributos correctos en el DOM.
+            const freshParagraphs = extractParagraphs(iframeDocument);
+            sectionParagraphsMapRef.current.set(cleanHref, freshParagraphs);
+            const loc = rendition.location;
+            if (loc && getCleanHref(loc.start.href) === cleanHref) {
+              useTtsStore.getState().setParagraphs(freshParagraphs);
+            }
+          }, 0);
+        }
 
         // Inyectar estilos de cursor + hover para párrafos clicables y FUENTES
         const styleId = 'tts-paragraph-click-styles';
@@ -614,15 +625,91 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   }, [fontFamily, fontSize, lineHeight]);
 
   // -------------------------------------------------------
-  // Resaltado del párrafo activo de TTS + Auto-Paginación
+  // Resaltado TTS en tiempo real — suscripción directa al store
+  // Usamos subscribe() en lugar de useEffect para evitar que el
+  // batching de React retrase el highlight entre frases.
   // -------------------------------------------------------
   useEffect(() => {
-    if (!ttsActive) {
-      // Limpiar highlight cuando TTS no está activo
-      const contents = (renditionRef.current as any)?.getContents?.() ?? [];
-      for (const content of contents) {
-        const doc = content.document as Document | undefined;
-        if (!doc) continue;
+    // Helper: obtiene el documento del iframe activo
+    const getActiveIframeDoc = (): Document | null => {
+      // Estrategia 1: rendition.getContents() — API interna de epubjs
+      try {
+        const contents = (renditionRef.current as any)?.getContents?.();
+        if (contents && contents.length > 0) {
+          const doc = contents[0]?.document;
+          if (doc) return doc;
+        }
+      } catch (_) { /* ignorar */ }
+
+      // Estrategia 2: acceder al manager interno de epubjs
+      try {
+        const manager = (renditionRef.current as any)?.manager;
+        const views = manager?.views?.map ? manager.views.map((v: any) => v) : [];
+        for (const view of views) {
+          const doc = view?.document || view?.iframe?.contentDocument;
+          if (doc) return doc;
+        }
+      } catch (_) { /* ignorar */ }
+
+      // Estrategia 3: querySelector sobre el contenedor React
+      const iframe = containerRef.current?.querySelector('iframe');
+      return iframe?.contentDocument ?? null;
+    };
+
+    // Función que aplica el highlight con el estado actual del store
+    const applyTtsHighlight = () => {
+      const state = useTtsStore.getState();
+      const { status, activeParagraphIndex: pIdx, activeSentenceIndex: sIdx, paragraphs } = state;
+      const isActive = status === 'playing' || status === 'loading';
+
+      const doc = getActiveIframeDoc();
+      if (!doc) return;
+
+      if (!isActive) {
+        // Limpiar todos los highlights TTS
+        const iframeWindow = doc.defaultView as any;
+        if (iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
+          iframeWindow.CSS.highlights.delete('tts-active');
+        }
+        doc.querySelectorAll<HTMLElement>('[data-paragraph-index]').forEach((el) => {
+          el.style.backgroundColor = '';
+        });
+        return;
+      }
+
+      const currentText = paragraphs[pIdx] || '';
+      const textChunks = splitIntoSentences(currentText);
+      const sentenceText = textChunks[sIdx] || currentText;
+
+      const rect = highlightActiveParagraph(doc, pIdx, sentenceText);
+
+      // Auto-paginación
+      if (rect && status === 'playing') {
+        const iframeWindow = doc.defaultView as any;
+        const viewportWidth = iframeWindow?.innerWidth ?? 0;
+        if (rect.left >= viewportWidth) {
+          renditionRef.current?.next();
+        } else if (rect.right <= 0) {
+          renditionRef.current?.prev();
+        }
+      }
+
+      prevParagraphIndexRef.current = pIdx;
+    };
+
+    // Suscribir directamente al store para cambios en tiempo real
+    const unsubscribe = useTtsStore.subscribe(() => {
+      applyTtsHighlight();
+    });
+
+    // Aplicar inmediatamente por si el estado ya es 'playing'
+    applyTtsHighlight();
+
+    return () => {
+      unsubscribe();
+      // Limpiar highlight al desmontar
+      const doc = getActiveIframeDoc();
+      if (doc) {
         const iframeWindow = doc.defaultView as any;
         if (iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
           iframeWindow.CSS.highlights.delete('tts-active');
@@ -631,42 +718,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           el.style.backgroundColor = '';
         });
       }
-      return;
-    }
-
-    // Obtener el documento del iframe activo a través de la rendition
-    const contents = (renditionRef.current as any)?.getContents?.() ?? [];
-    if (contents.length === 0) return;
-
-    // Usar el primer contenido visible (la vista activa)
-    const activeContent = contents[0];
-    const iframeDocument = activeContent?.document as Document | undefined;
-    const iframeWindow = iframeDocument?.defaultView as Window | undefined;
-    if (!iframeDocument || !iframeWindow) return;
-
-    const currentText = ttsParagraphs[activeParagraphIndex] || '';
-    const textChunks = splitIntoSentences(currentText);
-    const sentenceText = textChunks[activeSentenceIndex] || currentText;
-
-    const rect = highlightActiveParagraph(
-      iframeDocument,
-      activeParagraphIndex,
-      sentenceText
-    );
-
-    // Auto-paginación: si la frase o párrafo activo está fuera de la pantalla visible, navegar
-    if (rect && useTtsStore.getState().status === 'playing') {
-      const viewportWidth = (iframeWindow as any).innerWidth;
-
-      if (rect.left >= viewportWidth) {
-        renditionRef.current?.next();
-      } else if (rect.right <= 0) {
-        renditionRef.current?.prev();
-      }
-    }
-
-    prevParagraphIndexRef.current = activeParagraphIndex;
-  }, [activeParagraphIndex, activeSentenceIndex, ttsParagraphs, ttsActive]);
+    };
+  // Solo depende del ciclo de vida del componente — el store es externo
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // -------------------------------------------------------
   // Render highlights (solo para highlights nuevos no cubiertos por el evento 'rendered')
