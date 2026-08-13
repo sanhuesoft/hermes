@@ -6,6 +6,7 @@ import type { Voice, TtsPlaybackStatus } from '@/types/tts';
 interface TtsStore {
   status: TtsPlaybackStatus;
   activeParagraphIndex: number;
+  pendingJumpIndex: number | null;  // señal para saltar a un párrafo por click
   selectedVoice: Voice | null;
   voices: Voice[];
   paragraphs: string[];
@@ -26,11 +27,16 @@ interface TtsStore {
   nextParagraph: () => void;
   prevParagraph: () => void;
   stop: () => void;
+  /** Señala un salto de párrafo por click del usuario */
+  jumpToParagraph: (index: number) => void;
+  /** Limpiar la señal de salto después de procesarla */
+  clearJump: () => void;
 }
 
 export const useTtsStore = create<TtsStore>()((set, get) => ({
   status: 'idle',
   activeParagraphIndex: 0,
+  pendingJumpIndex: null,
   selectedVoice: null,
   voices: [],
   paragraphs: [],
@@ -70,15 +76,21 @@ export const useTtsStore = create<TtsStore>()((set, get) => ({
   setError: (error) => set({ status: 'error', error }),
   
   setParagraphs: (paragraphs) => {
-    const current = get().paragraphs;
-    // Si el texto es idéntico, asumimos que fue un re-render de la misma vista 
-    // y no reiniciamos el índice de lectura.
+    const { status, paragraphs: current } = get();
+    // Durante la reproducción, actualizar el texto pero NUNCA resetear el índice.
+    // Hacerlo causaría un loop de autopaginación que lucha con la navegación manual.
+    if (status === 'playing' || status === 'loading') {
+      set({ paragraphs });
+      return;
+    }
+    // Si el texto es idéntico, asumimos re-render de la misma vista
     if (current.length === paragraphs.length && current[0] === paragraphs[0]) {
       set({ paragraphs });
     } else {
       set({ paragraphs, activeParagraphIndex: 0 });
     }
   },
+
 
   nextParagraph: () => {
     const { activeParagraphIndex, paragraphs } = get();
@@ -97,4 +109,12 @@ export const useTtsStore = create<TtsStore>()((set, get) => ({
   },
 
   stop: () => set({ status: 'idle', activeParagraphIndex: 0 }),
+
+  jumpToParagraph: (index) => {
+    const { paragraphs } = get();
+    if (index < 0 || index >= paragraphs.length) return;
+    set({ pendingJumpIndex: index, activeParagraphIndex: index });
+  },
+
+  clearJump: () => set({ pendingJumpIndex: null }),
 }));

@@ -40,6 +40,7 @@ export default function Home() {
   const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
+  const [initialCfi, setInitialCfi] = useState<string | null>(null);
   const [bookMeta, setBookMeta] = useState<EpubMeta | null>(null);
   const [toc, setToc] = useState<Chapter[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
@@ -58,7 +59,7 @@ export default function Home() {
   const viewerRef = useRef<EpubViewerHandle>(null);
 
   const { theme, isZenMode, toggleZenMode } = useReaderStore();
-  const { openBook, updateHighlights } = useLibraryStore();
+  const { openBook, updateHighlights, updateProgress } = useLibraryStore();
 
   // Aplicar data-theme al html para que las CSS vars funcionen
   useEffect(() => {
@@ -70,13 +71,13 @@ export default function Home() {
   // -------------------------------------------------------
   const handleOpenBook = useCallback(
     async (book: LibraryBook) => {
-      // Registrar apertura y obtener datos actualizados
       const updated = await openBook(book.id);
       const target = updated ?? book;
 
       setActiveBookId(target.id);
       setHighlights(target.highlights ?? []);
       setFileBuffer(target.fileData);
+      setInitialCfi(target.lastCfi ?? null); // restaurar posición guardada
       setBookMeta(null);
       setToc([]);
       setFile(null);
@@ -89,7 +90,6 @@ export default function Home() {
   // Cerrar el lector y volver a la biblioteca
   // -------------------------------------------------------
   const handleCloseReader = useCallback(async () => {
-    // Guardar highlights antes de salir
     if (activeBookId) {
       await updateHighlights(activeBookId, highlights);
     }
@@ -97,6 +97,7 @@ export default function Home() {
     setActiveBookId(null);
     setFile(null);
     setFileBuffer(null);
+    setInitialCfi(null);
     setBookMeta(null);
     setToc([]);
     setHighlights([]);
@@ -281,6 +282,10 @@ export default function Home() {
             <EpubViewer
               ref={viewerRef}
               file={epubSource}
+              initialCfi={initialCfi}
+              onProgressUpdate={(cfi) => {
+                if (activeBookId) updateProgress(activeBookId, cfi);
+              }}
               onBookLoaded={(meta, chapters) => {
                 setBookMeta(meta);
                 setToc(chapters);

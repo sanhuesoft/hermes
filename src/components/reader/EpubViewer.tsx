@@ -19,6 +19,10 @@ interface EpubViewerProps {
   onBookLoaded: (meta: EpubMeta, toc: Chapter[]) => void;
   onHighlightRequest: (cfiRange: string, text: string) => void;
   highlights: Highlight[];
+  /** CFI de la última posición guardada (para restaurar progreso) */
+  initialCfi?: string | null;
+  /** Callback para guardar el progreso periódicamente */
+  onProgressUpdate?: (cfi: string) => void;
 }
 
 const THEME_CSS: Record<string, Record<string, string>> = {
@@ -41,20 +45,32 @@ const FONT_MAP: Record<string, string> = {
   opendyslexic: '"OpenDyslexic", sans-serif',
 };
 
+const getCleanHref = (href: string) => decodeURIComponent(href.split('#')[0]);
+
 const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubViewer({
   file,
   onBookLoaded,
   onHighlightRequest,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  highlights: _highlights, // used in Phase 4 (restoreHighlights on import)
+  highlights: _highlights,
+  initialCfi,
+  onProgressUpdate,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
   const prevParagraphIndexRef = useRef<number>(0);
+  // Ref para el último CFI, para guardar progreso sin re-renders
+  const lastCfiRef = useRef<string | null>(null);
+  // Ref para el debounce de progreso
+  const progressSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Mapa local de párrafos por sección para evitar que precargas de otros capítulos pisen el actual
+  const sectionParagraphsMapRef = useRef<Map<string, string[]>>(new Map());
 
   const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
-  const { activeParagraphIndex, setParagraphs } = useTtsStore();
+  const { activeParagraphIndex, status: ttsStatus, setParagraphs } = useTtsStore();
+
+  const ttsActive = ttsStatus === 'playing' || ttsStatus === 'loading';
 
   // -------------------------------------------------------
   // Cargar el libro
@@ -99,14 +115,34 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       });
       rendition.themes.select(theme);
 
-      // Tipografía inicial (sin marginX)
+      // Tipografía inicial
       applyTypography(rendition, fontFamily, fontSize, lineHeight);
 
       // Puentear eventos de teclado desde el iframe hacia la ventana principal
       const handleKey = (e: KeyboardEvent) => {
+        // Ignorar si el usuario está escribiendo en algún input
+        const isTyping = document.activeElement && (
+          document.activeElement.tagName === 'INPUT' ||
+          document.activeElement.tagName === 'TEXTAREA' ||
+          document.activeElement.hasAttribute('contenteditable')
+        );
+        if (isTyping) return;
+
+        // Tecla Espacio: alternar TTS
+        if (e.key === ' ') {
+          e.preventDefault();
+          window.dispatchEvent(new CustomEvent('toggle-tts'));
+          return;
+        }
+
+        // No permitir navegación por teclado si TTS está activo
+        if (useTtsStore.getState().status === 'playing') return;
+
         if (e.key === 'ArrowLeft') {
+          e.preventDefault();
           rendition.prev();
         } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
           rendition.next();
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           const location = rendition.location;
@@ -114,16 +150,15 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
             const currentHref = location.start.href;
             const spine = (bookRef.current as any).spine;
             const items = spine?.spineItems || [];
-            
-            // Buscar coincidencia exacta o decodificada
-            const currentIndex = items.findIndex((i: any) => 
+
+            const currentIndex = items.findIndex((i: any) =>
               i.href === currentHref || decodeURIComponent(i.href) === decodeURIComponent(currentHref)
             );
-            
+
             if (currentIndex !== -1) {
               const targetIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
               if (targetIndex >= 0 && targetIndex < items.length) {
-                // Navegar directo al inicio del spine item
+                e.preventDefault();
                 rendition.display(items[targetIndex].href);
               }
             }
@@ -131,74 +166,158 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         }
       };
 
-      rendition.on('keyup', (e: Event) => {
+      rendition.on('keydown', (e: Event) => {
         handleKey(e as KeyboardEvent);
       });
 
-      // Listener global por si el foco está fuera del iframe
       const globalKeyHandler = (e: KeyboardEvent) => handleKey(e);
-      window.addEventListener('keyup', globalKeyHandler);
+      window.addEventListener('keydown', globalKeyHandler);
 
-      // Limpiar listener global en el cleanup del useEffect
-      // (Se adjuntará al return original del useEffect)
       book.ready.then(() => {
         (book as any)._globalKeyHandler = globalKeyHandler;
       });
 
-      // Registrar listeners ANTES de display()
+      // Listener de selección para highlights
       rendition.on('selected', (cfiRange: string, contents: { window: Window }) => {
         const selection = contents.window.getSelection();
         const selectedText = selection?.toString().trim() ?? '';
         if (selectedText.length > 0) {
           onHighlightRequest(cfiRange, selectedText);
+
+          // Sincronizar el TTS con el párrafo de la selección
+          try {
+            const range = rendition.getRange(cfiRange);
+            if (range) {
+              let el = range.startContainer;
+              if (el.nodeType === 3 && el.parentNode) {
+                el = el.parentNode;
+              }
+              const p = (el as Element).closest('[data-paragraph-index]');
+              if (p) {
+                const index = parseInt(p.getAttribute('data-paragraph-index') || '0', 10);
+                useTtsStore.getState().setActiveParagraphIndex(index);
+              }
+            }
+          } catch (err) {
+            console.warn('[EpubViewer] No se pudo alinear el TTS con la selección:', err);
+          }
         }
       });
 
+      // Cuando se renderiza una sección
       rendition.on('rendered', (section: any, view: any) => {
-        const iframeDocument = view?.document || containerRef.current?.querySelector('iframe')?.contentDocument;
-        if (iframeDocument) {
-          const paragraphs = extractParagraphs(iframeDocument);
+        const iframeDocument = view?.document;
+        if (!iframeDocument) return;
+
+        const cleanHref = getCleanHref(section.href);
+
+        // Extraer párrafos para TTS y guardarlos en el mapa local
+        const paragraphs = extractParagraphs(iframeDocument);
+        sectionParagraphsMapRef.current.set(cleanHref, paragraphs);
+
+        // Si esta sección es la que se está visualizando actualmente, actualizar el store
+        const currentLocation = rendition.location;
+        if (currentLocation && getCleanHref(currentLocation.start.href) === cleanHref) {
           useTtsStore.getState().setParagraphs(paragraphs);
         }
-      });
 
-      rendition.on('relocated', (location: any) => {
-        const { status, setActiveParagraphIndex, setChapterTitle } = useTtsStore.getState();
-        
-        // Actualizar el título del capítulo actual
-        if (location && bookRef.current) {
-           const currentHref = location.start.href;
-           const spine = (bookRef.current as any).spine;
-           const items = spine?.spineItems || [];
-           
-           // Buscar el nombre del capítulo (del TOC que se precargó)
-           const nav = (bookRef.current as any).navigation;
-           if (nav && nav.toc) {
-              // Buscar de forma recursiva o plana
-              const findTitle = (tocItems: any[]): string | null => {
-                for (const item of tocItems) {
-                   if (item.href === currentHref || decodeURIComponent(item.href) === decodeURIComponent(currentHref)) return item.label;
-                   // Si el href del toc contiene el hash o difiere levemente
-                   if (item.href.split('#')[0] === currentHref.split('#')[0]) return item.label;
-                   if (item.subitems) {
-                     const sub = findTitle(item.subitems);
-                     if (sub) return sub;
-                   }
-                }
-                return null;
-              };
-              const title = findTitle(nav.toc);
-              if (title) setChapterTitle(title.trim());
-           }
+        // Inyectar estilos de cursor + hover para párrafos clicables
+        const styleId = 'tts-paragraph-click-styles';
+        if (!iframeDocument.getElementById(styleId)) {
+          const style = iframeDocument.createElement('style');
+          style.id = styleId;
+          style.textContent = `
+            [data-paragraph-index] {
+              cursor: pointer;
+              border-radius: 3px;
+              transition: background-color 0.15s;
+            }
+            [data-paragraph-index]:hover {
+              background-color: rgba(99, 102, 241, 0.08) !important;
+              outline: 1px solid rgba(99, 102, 241, 0.2);
+            }
+          `;
+          (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
         }
 
-        // Solo sincronizamos la vista con el TTS si el usuario NO está reproduciendo el audio en este momento
+        // Listener de click sobre párrafos para saltar TTS
+        // No usamos e.preventDefault() para no bloquear selección de texto ni links del EPUB
+        const handleParagraphClick = (e: MouseEvent) => {
+          const target = e.target as Element;
+          const p = target.closest('[data-paragraph-index]');
+          if (!p) return;
+          const index = parseInt(p.getAttribute('data-paragraph-index') ?? '-1', 10);
+          if (index >= 0) {
+            useTtsStore.getState().jumpToParagraph(index);
+          }
+        };
+
+        const docAny = iframeDocument as Document & { _ttsClickHandler?: EventListener };
+        if (docAny._ttsClickHandler) {
+          iframeDocument.removeEventListener('click', docAny._ttsClickHandler);
+        }
+        docAny._ttsClickHandler = handleParagraphClick as EventListener;
+        iframeDocument.addEventListener('click', handleParagraphClick as EventListener);
+      });
+
+      // Evento de reubicación: guardar progreso + sincronizar TTS
+      rendition.on('relocated', (location: any) => {
+        const { status, setActiveParagraphIndex, setChapterTitle } = useTtsStore.getState();
+
+        const currentHref = location.start.href;
+        const cleanHref = getCleanHref(currentHref);
+
+        // Cargar del mapa local los párrafos de la sección visible activa
+        const paragraphs = sectionParagraphsMapRef.current.get(cleanHref);
+        if (paragraphs) {
+          useTtsStore.getState().setParagraphs(paragraphs);
+        }
+
+        // Guardar CFI con debounce de 1 s para no saturar IDB
+        if (location?.start?.cfi) {
+          const cfi = location.start.cfi;
+          lastCfiRef.current = cfi;
+          if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
+          progressSaveTimerRef.current = setTimeout(() => {
+            onProgressUpdate?.(cfi);
+          }, 1000);
+        }
+
+        // Actualizar título del capítulo
+        if (location && bookRef.current) {
+          const currentHref = location.start.href;
+          const nav = (bookRef.current as any).navigation;
+          if (nav?.toc) {
+            const findTitle = (tocItems: any[]): string | null => {
+              for (const item of tocItems) {
+                if (
+                  item.href === currentHref ||
+                  decodeURIComponent(item.href) === decodeURIComponent(currentHref) ||
+                  item.href.split('#')[0] === currentHref.split('#')[0]
+                ) {
+                  return item.label;
+                }
+                if (item.subitems) {
+                  const sub = findTitle(item.subitems);
+                  if (sub) return sub;
+                }
+              }
+              return null;
+            };
+            const title = findTitle(nav.toc);
+            if (title) setChapterTitle(title.trim());
+          }
+        }
+
+        // Sincronizar posición TTS solo cuando NO está reproduciendo
         if (status === 'idle' || status === 'paused') {
           try {
             const range = rendition.getRange(location.start.cfi);
             if (range) {
               let el = range.startContainer;
-              if (el.nodeType === 3) el = el.parentNode; // Si es un nodo de texto, vamos a su contenedor
+              if (el.nodeType === 3 && el.parentNode) {
+                el = el.parentNode;
+              }
               const p = (el as Element).closest('[data-paragraph-index]');
               if (p) {
                 const index = parseInt(p.getAttribute('data-paragraph-index') || '0', 10);
@@ -211,7 +330,9 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         }
       });
 
-      await rendition.display();
+      // Mostrar libro: restaurar posición guardada o ir al inicio
+      const startCfi = initialCfi ?? null;
+      await (startCfi ? rendition.display(startCfi) : rendition.display());
       if (isCancelled) return;
 
       const [metadata, navigation] = await Promise.all([
@@ -243,38 +364,35 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
     return () => {
       isCancelled = true;
+      if (progressSaveTimerRef.current) clearTimeout(progressSaveTimerRef.current);
       if (bookRef.current) {
         const handler = (bookRef.current as any)._globalKeyHandler;
-        if (handler) {
-          window.removeEventListener('keyup', handler);
-        }
+        if (handler) window.removeEventListener('keydown', handler);
         bookRef.current.destroy();
         bookRef.current = null;
         renditionRef.current = null;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file]);
 
   // -------------------------------------------------------
   // Actualizar tema al cambiar
   // -------------------------------------------------------
   useEffect(() => {
-    const rendition = renditionRef.current;
-    if (!rendition) return;
-    rendition.themes.select(theme);
+    renditionRef.current?.themes.select(theme);
   }, [theme]);
 
   // -------------------------------------------------------
   // Actualizar tipografía al cambiar
   // -------------------------------------------------------
   useEffect(() => {
-    const rendition = renditionRef.current;
-    if (!rendition) return;
-    applyTypography(rendition, fontFamily, fontSize, lineHeight);
+    if (!renditionRef.current) return;
+    applyTypography(renditionRef.current, fontFamily, fontSize, lineHeight);
   }, [fontFamily, fontSize, lineHeight]);
 
   // -------------------------------------------------------
-  // Resaltado del párrafo activo de TTS y Auto-Paginación
+  // Resaltado del párrafo activo de TTS + Auto-Paginación
   // -------------------------------------------------------
   useEffect(() => {
     const iframe = containerRef.current?.querySelector('iframe');
@@ -285,14 +403,15 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       activeParagraphIndex,
       prevParagraphIndexRef.current
     );
-    
-    // Auto-paginación (TTS -> Viewer): Si el elemento resaltado está fuera de la pantalla, pasamos de página.
-    const currentEl = iframe.contentDocument.querySelector<HTMLElement>(`[data-paragraph-index="${activeParagraphIndex}"]`);
+
+    // Auto-paginación: si el párrafo activo está fuera de la pantalla visible, navegar
+    const currentEl = iframe.contentDocument.querySelector<HTMLElement>(
+      `[data-paragraph-index="${activeParagraphIndex}"]`
+    );
     if (currentEl && useTtsStore.getState().status === 'playing') {
       const rect = currentEl.getBoundingClientRect();
       const viewportWidth = iframe.contentWindow.innerWidth;
-      
-      // Si el borde izquierdo del elemento está más allá del ancho visible, significa que está en la siguiente columna/página
+
       if (rect.left >= viewportWidth) {
         renditionRef.current?.next();
       } else if (rect.right <= 0) {
@@ -306,46 +425,51 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   // -------------------------------------------------------
   // Navegación
   // -------------------------------------------------------
-  const nextPage = () => renditionRef.current?.next();
-  const prevPage = () => renditionRef.current?.prev();
-  const goToChapter = (href: string) => {
+  const nextPage = useCallback(() => {
+    if (useTtsStore.getState().status === 'playing') return;
+    renditionRef.current?.next();
+  }, []);
+
+  const prevPage = useCallback(() => {
+    if (useTtsStore.getState().status === 'playing') return;
+    renditionRef.current?.prev();
+  }, []);
+
+  const goToChapter = useCallback((href: string) => {
     if (!renditionRef.current || !bookRef.current) return;
-    
+
     const spine = (bookRef.current as any).spine;
     let targetHref = href;
-    
-    // Pre-validar si la sección existe para evitar el error "No Section Found" de epub.js
-    // que causa la pantalla roja de error en Next.js.
-    if (spine && spine.get) {
+
+    if (spine?.get) {
       let section = spine.get(href);
-      
+
       if (!section) {
         const cleanHref = decodeURIComponent(href.split('#')[0]);
         const basename = cleanHref.split('/').pop() || cleanHref;
-        
+
         if (spine.spineItems) {
           let match = spine.spineItems.find((i: any) => decodeURIComponent(i.href) === cleanHref);
           if (!match) {
-            match = spine.spineItems.find((i: any) => 
+            match = spine.spineItems.find((i: any) =>
               decodeURIComponent(i.href).endsWith(basename) || cleanHref.endsWith(decodeURIComponent(i.href))
             );
           }
-          
+
           if (match) {
             targetHref = match.href;
-            console.log('[EpubViewer] Fallback resuelto:', targetHref);
           } else {
             console.error('[EpubViewer] Capítulo no encontrado en el spine:', href);
-            return; // Abortamos la navegación para evitar el error.
+            return;
           }
         }
       }
     }
-    
+
     renditionRef.current.display(targetHref).catch((err) => {
       console.warn('[EpubViewer] Error al navegar al capítulo:', targetHref, err);
     });
-  };
+  }, []);
 
   useImperativeHandle(ref, () => ({
     goToChapter,
@@ -355,15 +479,19 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
   return (
     <div className="epub-viewer-wrapper relative flex h-full w-full flex-col">
-      {/* Envoltorio con padding para evitar que epubjs malinterprete el clientWidth */}
-      <div 
+      {/* Indicador de navegación controlada por TTS */}
+      {ttsActive && (
+        <div className="tts-nav-lock-badge" aria-live="polite">
+          🎙 Leyendo en voz alta · pausa o detén para navegar
+        </div>
+      )}
+
+      {/* Envoltorio con padding horizontal */}
+      <div
         className="flex-1 transition-all duration-300 w-full h-full"
         style={{ paddingLeft: `${marginX}%`, paddingRight: `${marginX}%`, minHeight: 0 }}
       >
-        <div
-          ref={containerRef}
-          className="epub-canvas w-full h-full"
-        />
+        <div ref={containerRef} className="epub-canvas w-full h-full" />
       </div>
 
       {/* Controles de navegación de páginas */}
@@ -372,7 +500,9 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           id="epub-prev-page"
           onClick={prevPage}
           aria-label="Página anterior"
-          className="epub-nav-btn pointer-events-auto"
+          className={`epub-nav-btn pointer-events-auto ${ttsActive ? 'epub-nav-btn--locked' : ''}`}
+          title={ttsActive ? 'Pausa el TTS para navegar' : 'Página anterior'}
+          tabIndex={ttsActive ? -1 : 0}
         >
           ‹
         </button>
@@ -380,7 +510,9 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           id="epub-next-page"
           onClick={nextPage}
           aria-label="Página siguiente"
-          className="epub-nav-btn pointer-events-auto"
+          className={`epub-nav-btn pointer-events-auto ${ttsActive ? 'epub-nav-btn--locked' : ''}`}
+          title={ttsActive ? 'Pausa el TTS para navegar' : 'Página siguiente'}
+          tabIndex={ttsActive ? -1 : 0}
         >
           ›
         </button>
@@ -403,6 +535,4 @@ function applyTypography(
   rendition.themes.override('font-family', FONT_MAP[fontFamily] || 'sans-serif');
   rendition.themes.override('font-size', `${fontSize}px`);
   rendition.themes.override('line-height', String(lineHeight));
-  // Los márgenes internos del body rompen el flow paginado de CSS columns en epubjs.
-  // Es mejor aplicarlos como padding en el div contenedor padre.
 }

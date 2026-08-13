@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { synthesizeSpeech } from '@/lib/tts/edge-tts-client';
 
@@ -8,6 +8,7 @@ export default function TtsControls() {
   const {
     status,
     activeParagraphIndex,
+    pendingJumpIndex,
     paragraphs,
     selectedVoice,
     chapterTitle,
@@ -16,13 +17,140 @@ export default function TtsControls() {
     nextParagraph,
     prevParagraph,
     stop,
+    clearJump,
   } = useTtsStore();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentBlobUrl = useRef<string | null>(null);
   const playIdRef = useRef<number>(0);
 
-  const playCurrent = async (indexToPlay: number) => {
+  // Caché de precarga de párrafos: almacena pares [index, blobUrls[]]
+  const prefetchedCache = useRef<Map<number, string[]>>(new Map());
+  const activePrefetching = useRef<Set<number>>(new Set());
+
+  // Limpiar toda la caché de precarga
+  const clearPrefetchCache = useCallback(() => {
+    prefetchedCache.current.forEach((urls) => {
+      urls.forEach((url) => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          console.warn('Error revoking cached URL:', e);
+        }
+      });
+    });
+    prefetchedCache.current.clear();
+    activePrefetching.current.clear();
+  }, []);
+
+  // Limpiar caché cuando cambie la voz o los párrafos de capítulo
+  useEffect(() => {
+    clearPrefetchCache();
+  }, [selectedVoice, paragraphs, clearPrefetchCache]);
+
+  // Limpiar al desmontar el componente
+  useEffect(() => {
+    return () => {
+      clearPrefetchCache();
+    };
+  }, [clearPrefetchCache]);
+
+  // Precargar un solo párrafo
+  const prefetchParagraph = async (index: number, voiceId: string, currentPlayId: number) => {
+    if (index >= paragraphs.length || index < 0) return;
+    if (prefetchedCache.current.has(index)) return;
+    if (activePrefetching.current.has(index)) return;
+
+    activePrefetching.current.add(index);
+
+    try {
+      const text = paragraphs[index];
+      if (!text) {
+        activePrefetching.current.delete(index);
+        return;
+      }
+
+      // Chunking idéntico al de reproducción
+      let textChunks: string[] = [];
+      if (text.length > 200) {
+        const sentences = text.match(/[^.!?]+[.!?]+(\s|$)/g);
+        if (sentences && sentences.length > 1) {
+          textChunks = sentences.map(s => s.trim()).filter(s => s.length > 0);
+        } else {
+          textChunks = [text];
+        }
+      } else {
+        textChunks = [text];
+      }
+
+      const urls: string[] = [];
+      for (const chunk of textChunks) {
+        if (playIdRef.current !== currentPlayId) {
+          urls.forEach(URL.revokeObjectURL);
+          activePrefetching.current.delete(index);
+          return;
+        }
+        const url = await synthesizeSpeech(chunk, voiceId);
+        urls.push(url);
+      }
+
+      if (playIdRef.current === currentPlayId) {
+        prefetchedCache.current.set(index, urls);
+        console.log(`[TTS Prefetch] Párrafo ${index} precargado exitosamente con ${urls.length} fragmentos.`);
+      } else {
+        urls.forEach(URL.revokeObjectURL);
+      }
+    } catch (err) {
+      console.error(`[TTS Prefetch] Error al precargar párrafo ${index}:`, err);
+    } finally {
+      activePrefetching.current.delete(index);
+    }
+  };
+
+  // Precargar secuencialmente los próximos 5 párrafos
+  const prefetchNextParagraphs = async (currentIndex: number, voiceId: string, currentPlayId: number) => {
+    for (let offset = 1; offset <= 5; offset++) {
+      const targetIndex = currentIndex + offset;
+      if (targetIndex >= paragraphs.length) break;
+      if (playIdRef.current !== currentPlayId) break;
+      await prefetchParagraph(targetIndex, voiceId, currentPlayId);
+    }
+  };
+
+  // ----------------------------------------------------------
+  // Reaccionar a click de párrafo (jumpToParagraph del store)
+  // ----------------------------------------------------------
+  useEffect(() => {
+    if (pendingJumpIndex === null) return;
+
+    // Cancelar reproducción actual e invalidar caché de precarga para evitar desincronizaciones
+    playIdRef.current++;
+    clearPrefetchCache();
+
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+      currentBlobUrl.current = null;
+    }
+
+    const idx = pendingJumpIndex;
+    clearJump();
+
+    // Si estaba reproduciendo, continuar desde el nuevo párrafo;
+    // si estaba pausado/idle, sólo posicionar (el usuario decide reproducir).
+    if (status === 'playing' || status === 'loading') {
+      setStatus('loading');
+      playCurrent(idx);
+    } else {
+      setStatus('idle');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingJumpIndex, clearPrefetchCache]);
+
+  const playCurrent = useCallback(async (indexToPlay: number) => {
     if (!selectedVoice || paragraphs.length === 0) return;
     
     const currentText = paragraphs[indexToPlay];
@@ -33,6 +161,9 @@ export default function TtsControls() {
 
     // Usamos un ID para ignorar promesas si el usuario cambia de párrafo rápido
     const currentPlayId = ++playIdRef.current;
+
+    // Disparar precarga en segundo plano de los siguientes 5 párrafos
+    prefetchNextParagraphs(indexToPlay, selectedVoice.ShortName, currentPlayId);
 
     // Chunking inteligente a nivel reproductor
     let textChunks: string[] = [];
@@ -48,33 +179,63 @@ export default function TtsControls() {
     }
 
     try {
-      console.log(`[TTS] Reproduciendo párrafo ${indexToPlay} (dividido en ${textChunks.length} fragmentos)...`);
-      
-      for (let i = 0; i < textChunks.length; i++) {
-        if (playIdRef.current !== currentPlayId) return;
+      const cachedUrls = prefetchedCache.current.get(indexToPlay);
 
-        setStatus('loading');
-        const chunkText = textChunks[i];
-        const blobUrl = await synthesizeSpeech(chunkText, selectedVoice.ShortName);
-        
-        if (playIdRef.current !== currentPlayId) {
-          URL.revokeObjectURL(blobUrl);
-          return;
+      if (cachedUrls && cachedUrls.length === textChunks.length) {
+        console.log(`[TTS Cache] Usando audio precargado para el párrafo ${indexToPlay}.`);
+        for (let i = 0; i < cachedUrls.length; i++) {
+          if (playIdRef.current !== currentPlayId) return;
+
+          setStatus('playing');
+          const blobUrl = cachedUrls[i];
+          
+          if (currentBlobUrl.current) {
+            URL.revokeObjectURL(currentBlobUrl.current);
+          }
+          currentBlobUrl.current = blobUrl;
+
+          const audio = new Audio(blobUrl);
+          audioRef.current = audio;
+          
+          await new Promise<void>((resolve, reject) => {
+            audio.onended = () => { resolve(); };
+            audio.onerror = (e) => { reject(e); };
+            audio.play().catch(reject);
+          });
         }
-
-        if (currentBlobUrl.current) URL.revokeObjectURL(currentBlobUrl.current);
-        currentBlobUrl.current = blobUrl;
-
-        const audio = new Audio(blobUrl);
-        audioRef.current = audio;
-
-        setStatus('playing');
         
-        await new Promise<void>((resolve, reject) => {
-          audio.onended = () => { resolve(); };
-          audio.onerror = (e) => { reject(e); };
-          audio.play().catch(reject);
-        });
+        // Remover de la caché una vez reproducido
+        prefetchedCache.current.delete(indexToPlay);
+      } else {
+        console.log(`[TTS] Reproduciendo párrafo ${indexToPlay} (sintetizando en tiempo real)...`);
+        for (let i = 0; i < textChunks.length; i++) {
+          if (playIdRef.current !== currentPlayId) return;
+
+          setStatus('loading');
+          const chunkText = textChunks[i];
+          const blobUrl = await synthesizeSpeech(chunkText, selectedVoice.ShortName);
+          
+          if (playIdRef.current !== currentPlayId) {
+            URL.revokeObjectURL(blobUrl);
+            return;
+          }
+
+          if (currentBlobUrl.current) {
+            URL.revokeObjectURL(currentBlobUrl.current);
+          }
+          currentBlobUrl.current = blobUrl;
+
+          const audio = new Audio(blobUrl);
+          audioRef.current = audio;
+
+          setStatus('playing');
+          
+          await new Promise<void>((resolve, reject) => {
+            audio.onended = () => { resolve(); };
+            audio.onerror = (e) => { reject(e); };
+            audio.play().catch(reject);
+          });
+        }
       }
 
       // Todos los chunks terminaron
@@ -93,29 +254,29 @@ export default function TtsControls() {
       console.error('[TTS] Excepción capturada:', err);
       setError(err instanceof Error ? err.message : 'Error desconocido');
     }
-  };
+  }, [selectedVoice, paragraphs, setStatus, prefetchNextParagraphs, nextParagraph, stop, setError]);
 
-  const handlePlay = () => {
+  const handlePlay = useCallback(() => {
     if (paragraphs.length === 0 || !selectedVoice) return;
     playCurrent(activeParagraphIndex);
-  };
+  }, [paragraphs.length, selectedVoice, playCurrent, activeParagraphIndex]);
 
-  const handlePause = () => {
+  const handlePause = useCallback(() => {
     playIdRef.current++; // cancel pending fetches
     audioRef.current?.pause();
     setStatus('paused');
-  };
+  }, [setStatus]);
 
-  const handleResume = () => {
+  const handleResume = useCallback(() => {
     if (audioRef.current) {
       audioRef.current.play();
       setStatus('playing');
     } else {
       playCurrent(activeParagraphIndex);
     }
-  };
+  }, [playCurrent, activeParagraphIndex, setStatus]);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     playIdRef.current++;
     audioRef.current?.pause();
     if (currentBlobUrl.current) {
@@ -123,20 +284,19 @@ export default function TtsControls() {
       currentBlobUrl.current = null;
     }
     stop();
-  };
+  }, [stop]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
     playIdRef.current++;
     audioRef.current?.pause();
     prevParagraph();
-    // Use timeout to allow state to update, or just use calculated index
     const prevIdx = activeParagraphIndex > 0 ? activeParagraphIndex - 1 : 0;
     if (status === 'playing' || status === 'loading') {
       playCurrent(prevIdx);
     }
-  };
+  }, [prevParagraph, activeParagraphIndex, status, playCurrent]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
     playIdRef.current++;
     audioRef.current?.pause();
     nextParagraph();
@@ -144,7 +304,24 @@ export default function TtsControls() {
     if (status === 'playing' || status === 'loading') {
       playCurrent(nextIdx);
     }
-  };
+  }, [nextParagraph, activeParagraphIndex, paragraphs.length, status, playCurrent]);
+
+  // Escuchar evento personalizado para reproducir/pausar con la tecla Espacio
+  useEffect(() => {
+    const handleToggle = () => {
+      if (paragraphs.length === 0 || !selectedVoice) return;
+      if (status === 'playing' || status === 'loading') {
+        handlePause();
+      } else if (status === 'paused') {
+        handleResume();
+      } else {
+        handlePlay();
+      }
+    };
+
+    window.addEventListener('toggle-tts', handleToggle);
+    return () => window.removeEventListener('toggle-tts', handleToggle);
+  }, [status, paragraphs.length, selectedVoice, handlePlay, handlePause, handleResume]);
 
   const isDisabled = paragraphs.length === 0 || !selectedVoice;
   const isLoading = status === 'loading';

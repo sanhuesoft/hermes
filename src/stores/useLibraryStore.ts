@@ -43,6 +43,7 @@ interface LibraryStore {
   removeBook: (id: string) => Promise<void>;
   updateHighlights: (bookId: string, highlights: Highlight[]) => Promise<void>;
   updateCover: (bookId: string, coverData: ArrayBuffer) => Promise<void>;
+  updateProgress: (bookId: string, cfi: string) => Promise<void>;
 
   // Carpetas
   addFolder: (name: string) => Promise<LibraryFolder>;
@@ -104,6 +105,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       meta,
       addedAt: new Date().toISOString(),
       lastOpenedAt: null,
+      lastCfi: null,
       highlights: [],
     };
     await saveBook(book);
@@ -151,6 +153,17 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     const updated = { ...book, highlights };
     await saveBook(updated);
     set((state) => ({
+      books: state.books.map((b) => (b.id === bookId ? updated : b)),
+    }));
+  },
+
+  updateProgress: async (bookId, cfi) => {
+    const book = get().books.find((b) => b.id === bookId);
+    if (!book) return;
+    const updated = { ...book, lastCfi: cfi };
+    await saveBook(updated);
+    // Actualizar en memoria (sin re-render innecesario, solo IDB)
+    get().books.find((b) => b.id === bookId) && set((state) => ({
       books: state.books.map((b) => (b.id === bookId ? updated : b)),
     }));
   },

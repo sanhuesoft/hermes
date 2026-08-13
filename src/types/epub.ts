@@ -21,8 +21,10 @@ export interface LibraryBook {
   meta: EpubMeta;
   addedAt: string;
   lastOpenedAt: string | null;
+  lastCfi: string | null;  // posición exacta de lectura (epubcfi) para restaurar progreso
   highlights: Highlight[];
 }
+
 
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';
 
