@@ -187,8 +187,10 @@ export default function TtsControls() {
           synthesizeSpeech(chunk, selectedVoice.ShortName)
         );
 
-        // Esperamos la primera frase inmediatamente para empezar la reproducción sin demoras
-        const firstUrl = await synthesisPromises[0];
+        const startSentenceIndex = useTtsStore.getState().activeSentenceIndex || 0;
+
+        // Esperamos la frase solicitada inmediatamente para empezar la reproducción sin demoras
+        const firstUrl = await synthesisPromises[startSentenceIndex];
         if (playIdRef.current !== currentPlayId) {
           firstUrl && URL.revokeObjectURL(firstUrl);
           synthesisPromises.forEach(async p => {
@@ -197,15 +199,18 @@ export default function TtsControls() {
           return;
         }
 
-        blobUrls.push(firstUrl);
+        // Reasignamos el array en orden
+        blobUrls[startSentenceIndex] = firstUrl;
 
         // Resolver las demás promesas en paralelo en segundo plano
         // y agregarlas a blobUrls a medida que estén listas
-        Promise.all(synthesisPromises.slice(1)).then(urls => {
+        Promise.all(synthesisPromises).then(urls => {
           if (playIdRef.current === currentPlayId) {
-            blobUrls.push(...urls);
+            urls.forEach((url, i) => {
+              if (i !== startSentenceIndex) blobUrls[i] = url;
+            });
           } else {
-            urls.forEach(URL.revokeObjectURL);
+            urls.forEach(url => { if (url) URL.revokeObjectURL(url); });
           }
         }).catch(err => {
           console.error('[TTS] Error en síntesis paralela:', err);
@@ -214,8 +219,9 @@ export default function TtsControls() {
 
       // Pre-cargamos los elementos de Audio para que el cambio de frase sea instantáneo
       const audioElements: (HTMLAudioElement | null)[] = [];
+      const startSentenceIndex = useTtsStore.getState().activeSentenceIndex || 0;
 
-      for (let i = 0; i < textChunks.length; i++) {
+      for (let i = startSentenceIndex; i < textChunks.length; i++) {
         if (playIdRef.current !== currentPlayId) {
           blobUrls.forEach(URL.revokeObjectURL);
           return;

@@ -31,6 +31,7 @@ interface TtsStore {
   prevParagraph: () => void;
   stop: () => void;
   jumpToParagraph: (index: number) => void;
+  jumpToSentence: (paragraphIndex: number, sentenceIndex: number) => void;
   clearJump: () => void;
 }
 
@@ -116,6 +117,12 @@ export const useTtsStore = create<TtsStore>()(
         const { paragraphs } = get();
         if (index < 0 || index >= paragraphs.length) return;
         set({ pendingJumpIndex: index, activeParagraphIndex: index, activeSentenceIndex: 0 });
+      },
+
+      jumpToSentence: (paragraphIndex, sentenceIndex) => {
+        const { paragraphs } = get();
+        if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) return;
+        set({ pendingJumpIndex: paragraphIndex, activeParagraphIndex: paragraphIndex, activeSentenceIndex: sentenceIndex });
       },
 
       clearJump: () => set({ pendingJumpIndex: null }),

@@ -5,7 +5,7 @@ import Epub, { Book, Rendition } from 'epubjs';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { extractParagraphs, splitIntoSentences } from '@/lib/epub/parser';
-import { highlightActiveParagraph } from '@/lib/epub/highlight-manager';
+import { highlightActiveParagraph, getSentenceIndexFromPoint, highlightHoverSentence, clearHoverSentence } from '@/lib/epub/highlight-manager';
 import type { EpubMeta, Chapter, Highlight } from '@/types/epub';
 
 export interface EpubViewerHandle {
@@ -184,24 +184,6 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         const selectedText = selection?.toString().trim() ?? '';
         if (selectedText.length > 0) {
           onHighlightRequest(cfiRange, selectedText);
-
-          // Sincronizar el TTS con el párrafo de la selección
-          try {
-            const range = rendition.getRange(cfiRange);
-            if (range) {
-              let el = range.startContainer;
-              if (el.nodeType === 3 && el.parentNode) {
-                el = el.parentNode;
-              }
-              const p = (el as Element).closest('[data-paragraph-index]');
-              if (p) {
-                const index = parseInt(p.getAttribute('data-paragraph-index') || '0', 10);
-                useTtsStore.getState().setActiveParagraphIndex(index);
-              }
-            }
-          } catch (err) {
-            console.warn('[EpubViewer] No se pudo alinear el TTS con la selección:', err);
-          }
         }
       });
 
@@ -236,9 +218,15 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
               border-radius: 3px;
               transition: background-color 0.15s;
             }
-            [data-paragraph-index]:hover {
-              background-color: rgba(212, 221, 218, 0.4) !important;
-              outline: 1px dashed rgba(212, 221, 218, 0.8);
+
+            ::highlight(tts-active) {
+              background-color: #d4ddda;
+              color: inherit;
+            }
+            
+            ::highlight(tts-hover) {
+              background-color: rgba(212, 221, 218, 0.4);
+              border-bottom: 1px dashed rgba(212, 221, 218, 0.8);
             }
 
             ::highlight(tts-active) {
@@ -249,24 +237,73 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
         }
 
-        // Listener de click sobre párrafos para saltar TTS
-        // No usamos e.preventDefault() para no bloquear selección de texto ni links del EPUB
+        // Listener de click sobre párrafos para saltar TTS a la frase exacta
         const handleParagraphClick = (e: MouseEvent) => {
+          // Ignorar el click si el usuario está seleccionando texto (para crear un highlight/nota)
+          const selection = iframeDocument.defaultView?.getSelection();
+          if (selection && selection.toString().trim().length > 0) return;
+
           const target = e.target as Element;
-          const p = target.closest('[data-paragraph-index]');
-          if (!p) return;
-          const index = parseInt(p.getAttribute('data-paragraph-index') ?? '-1', 10);
-          if (index >= 0) {
-            useTtsStore.getState().jumpToParagraph(index);
+          if (!target.closest('[data-paragraph-index]')) return;
+          
+          const paragraphs = sectionParagraphsMapRef.current.get(cleanHref) || [];
+          const pos = getSentenceIndexFromPoint(iframeDocument, e.clientX, e.clientY, []);
+          
+          if (pos && pos.paragraphIndex >= 0) {
+             const pText = paragraphs[pos.paragraphIndex] || '';
+             const sentences = splitIntoSentences(pText);
+             const exactPos = getSentenceIndexFromPoint(iframeDocument, e.clientX, e.clientY, sentences);
+             
+             if (exactPos && exactPos.sentenceIndex >= 0) {
+               useTtsStore.getState().jumpToSentence(exactPos.paragraphIndex, exactPos.sentenceIndex);
+             } else {
+               useTtsStore.getState().jumpToParagraph(pos.paragraphIndex);
+             }
           }
         };
+        
+        let hoverTimeout: any = null;
+        const handleMouseMove = (e: MouseEvent) => {
+          if (hoverTimeout) clearTimeout(hoverTimeout);
+          hoverTimeout = setTimeout(() => {
+            const target = e.target as Element;
+            if (!target.closest('[data-paragraph-index]')) {
+              clearHoverSentence(iframeDocument);
+              return;
+            }
+            
+            const paragraphs = sectionParagraphsMapRef.current.get(cleanHref) || [];
+            const pos = getSentenceIndexFromPoint(iframeDocument, e.clientX, e.clientY, []);
+            if (pos && pos.paragraphIndex >= 0) {
+               const pText = paragraphs[pos.paragraphIndex] || '';
+               const sentences = splitIntoSentences(pText);
+               const exactPos = getSentenceIndexFromPoint(iframeDocument, e.clientX, e.clientY, sentences);
+               if (exactPos && exactPos.sentenceIndex >= 0) {
+                 highlightHoverSentence(iframeDocument, exactPos.paragraphIndex, sentences[exactPos.sentenceIndex]);
+               } else {
+                 clearHoverSentence(iframeDocument);
+               }
+            } else {
+               clearHoverSentence(iframeDocument);
+            }
+          }, 50); // throttle para no bloquear
+        };
 
-        const docAny = iframeDocument as Document & { _ttsClickHandler?: EventListener };
+        const docAny = iframeDocument as Document & { 
+          _ttsClickHandler?: EventListener;
+          _ttsMoveHandler?: EventListener;
+        };
+        
         if (docAny._ttsClickHandler) {
           iframeDocument.removeEventListener('click', docAny._ttsClickHandler);
+          iframeDocument.removeEventListener('mousemove', docAny._ttsMoveHandler as EventListener);
         }
+        
         docAny._ttsClickHandler = handleParagraphClick as EventListener;
+        docAny._ttsMoveHandler = handleMouseMove as EventListener;
+        
         iframeDocument.addEventListener('click', handleParagraphClick as EventListener);
+        iframeDocument.addEventListener('mousemove', handleMouseMove as EventListener);
       });
 
       // Evento de reubicación: guardar progreso + sincronizar TTS
