@@ -2,6 +2,28 @@
 // Tipos principales para el motor EPUB
 // ============================================================
 
+// ============================================================
+// Biblioteca de libros
+// ============================================================
+
+export interface LibraryFolder {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
+export interface LibraryBook {
+  id: string;
+  folderId: string | null; // null = sin carpeta
+  fileName: string;        // nombre original del archivo .epub
+  fileData: ArrayBuffer;   // contenido raw del EPUB
+  coverData: ArrayBuffer | null; // bytes de la imagen de portada (persiste en IDB)
+  meta: EpubMeta;
+  addedAt: string;
+  lastOpenedAt: string | null;
+  highlights: Highlight[];
+}
+
 export type HighlightColor = 'yellow' | 'green' | 'blue' | 'pink';
 
 export interface EpubMeta {
@@ -10,7 +32,7 @@ export interface EpubMeta {
   identifier: string;
   language: string;
   publisher?: string;
-  cover?: string; // URL de objeto blob
+  cover?: string; // blob URL efímera (generada en runtime desde coverData, NO persiste)
 }
 
 export interface Chapter {

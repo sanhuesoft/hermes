@@ -804,3 +804,638 @@ body {
   background: var(--color-accent-dim);
   color: var(--color-accent);
 }
+
+/* ============================================================
+   Biblioteca — Layout
+   ============================================================ */
+
+.lib-layout {
+  display: flex;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* ============================================================
+   Biblioteca — Sidebar
+   ============================================================ */
+
+.lib-sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.lib-sidebar__header {
+  padding: 1.25rem 1rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.lib-sidebar__brand {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.lib-sidebar__section-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 1rem 1rem 0.25rem;
+  margin: 0;
+}
+
+.lib-sidebar__folder-row {
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+
+.lib-sidebar__folder-row:hover .lib-sidebar__folder-menu-btn {
+  opacity: 1;
+}
+
+.lib-sidebar__item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.55rem 1rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  transition: background 0.15s, color 0.15s;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  min-width: 0;
+}
+
+.lib-sidebar__item:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.lib-sidebar__item--active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.lib-sidebar__item-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.lib-sidebar__item-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lib-sidebar__item-count {
+  font-size: 0.72rem;
+  background: var(--border);
+  color: var(--text-muted);
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  flex-shrink: 0;
+}
+
+.lib-sidebar__folder-menu-btn {
+  position: absolute;
+  right: 0.5rem;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.lib-sidebar__folder-menu-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.lib-sidebar__rename-input {
+  flex: 1;
+  margin: 0.25rem 0.5rem 0.25rem 1rem;
+  padding: 0.3rem 0.5rem;
+  border: 1.5px solid var(--color-accent);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.lib-sidebar__new-folder-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  width: 100%;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+}
+
+.lib-sidebar__new-folder-btn:hover {
+  color: var(--color-accent);
+  background: var(--color-accent-dim);
+}
+
+/* ============================================================
+   Biblioteca — Menú contextual (carpetas)
+   ============================================================ */
+
+.lib-context-menu {
+  position: fixed;
+  z-index: 300;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 0.35rem;
+  min-width: 160px;
+  animation: scaleIn 0.15s ease;
+}
+
+.lib-context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.lib-context-menu__item:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.lib-context-menu__item--danger:hover {
+  background: hsl(0, 80%, 95%);
+  color: hsl(0, 70%, 45%);
+}
+
+[data-theme="dark"] .lib-context-menu__item--danger:hover {
+  background: hsl(0, 50%, 20%);
+  color: hsl(0, 70%, 70%);
+}
+
+/* ============================================================
+   Biblioteca — Área principal
+   ============================================================ */
+
+.lib-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.lib-main__header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1.5rem 1.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+
+.lib-main__title {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.lib-main__count {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ============================================================
+   Biblioteca — Grid de libros
+   ============================================================ */
+
+.lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1.5rem;
+  padding: 1.75rem;
+  overflow-y: auto;
+  align-content: start;
+  flex: 1;
+}
+
+/* ============================================================
+   Book Card
+   ============================================================ */
+
+.book-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  animation: fadeIn 0.25s ease;
+}
+
+.book-card__cover {
+  position: relative;
+  aspect-ratio: 2 / 3;
+  border-radius: 10px;
+  overflow: hidden;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15), 0 1px 4px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.book-card__cover:hover {
+  transform: translateY(-4px) scale(1.01);
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.2), 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+.book-card__cover-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.book-card__cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.book-card__cover-icon {
+  font-size: 2.5rem;
+  opacity: 0.6;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3));
+}
+
+.book-card__cover-initials {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.9);
+  letter-spacing: 0.05em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.3);
+}
+
+/* Overlay de hover sobre la portada */
+.book-card__cover-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: inherit;
+}
+
+.book-card__cover:hover .book-card__cover-overlay {
+  opacity: 1;
+}
+
+.book-card__open-label {
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+/* Info bajo la portada */
+.book-card__info {
+  padding: 0 0.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.book-card__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.book-card__author {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-card__meta-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.book-card__folder-badge {
+  font-size: 0.68rem;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  white-space: nowrap;
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.book-card__time {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Botón de menú ⋮ */
+.book-card__menu-wrapper {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 10;
+}
+
+.book-card__menu-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: none;
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.book-card:hover .book-card__menu-btn {
+  opacity: 1;
+}
+
+.book-card__menu-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+/* Dropdown de opciones del libro */
+.book-card__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  padding: 0.35rem;
+  min-width: 170px;
+  animation: scaleIn 0.15s ease;
+  z-index: 200;
+}
+
+.book-card__dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.45rem 0.75rem;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.book-card__dropdown-item:hover {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.book-card__dropdown-item--danger:hover {
+  background: hsl(0, 80%, 95%);
+  color: hsl(0, 70%, 45%);
+}
+
+[data-theme="dark"] .book-card__dropdown-item--danger:hover {
+  background: hsl(0, 50%, 20%);
+  color: hsl(0, 70%, 70%);
+}
+
+.book-card__dropdown-item--active {
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.book-card__dropdown-item--back {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+}
+
+.book-card__dropdown-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.3rem 0;
+}
+
+/* ============================================================
+   Biblioteca — Empty state
+   ============================================================ */
+
+.lib-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 3rem;
+  text-align: center;
+}
+
+.lib-empty__icon {
+  font-size: 4rem;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12));
+  margin-bottom: 0.5rem;
+}
+
+.lib-empty__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.lib-empty__text {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 340px;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   Biblioteca — FAB Añadir libro
+   ============================================================ */
+
+.lib-add-btn {
+  position: fixed;
+  bottom: 1.75rem;
+  right: 1.75rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: none;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.45);
+  transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+  z-index: 50;
+}
+
+.lib-add-btn:hover:not(:disabled) {
+  transform: scale(1.08);
+  box-shadow: 0 6px 28px rgba(99, 102, 241, 0.55);
+  background: var(--color-accent-hover);
+}
+
+.lib-add-btn:disabled {
+  cursor: wait;
+}
+
+.lib-add-btn--loading {
+  background: var(--color-accent-hover);
+}
+
+.lib-add-btn__icon {
+  font-size: 1.6rem;
+  line-height: 1;
+  font-weight: 300;
+}
+
+/* Spinner */
+.lib-add-btn__spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255,255,255,0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error toast */
+.lib-add-error {
+  position: fixed;
+  bottom: 1.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: hsl(0, 70%, 45%);
+  color: white;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  z-index: 200;
+  animation: slideUp 0.2s ease;
+}
+
+.lib-add-error__close {
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 0.8rem;
+  opacity: 0.8;
+  padding: 0;
+}
+
+.lib-add-error__close:hover {
+  opacity: 1;
+}
+
+/* ============================================================
+   Spinner de carga de biblioteca
+   ============================================================ */
+
+.lib-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+

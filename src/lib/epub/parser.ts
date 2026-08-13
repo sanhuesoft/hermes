@@ -52,27 +52,34 @@ export async function getTableOfContents(book: Book): Promise<Chapter[]> {
  * @param iframeDocument - El documento del iframe del rendition
  */
 export function extractParagraphs(iframeDocument: Document): string[] {
-  // Capturar encabezados, párrafos y listas.
-  // IMPORTANTE: Se filtra para no duplicar si un li contiene un p.
+  // Capturar todo tipo de contenedor de texto común
   const elements = Array.from(
-    iframeDocument.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li')
+    iframeDocument.querySelectorAll('p, h1, h2, h3, h4, h5, h6, li, blockquote, div')
   ).filter(el => {
-    // Si este elemento es un 'li' y tiene un 'p' hijo, lo ignoramos 
-    // porque el 'p' hijo ya será capturado por el querySelector.
-    if (el.tagName.toLowerCase() === 'li' && el.querySelector('p')) {
-      return false;
+    const tag = el.tagName.toLowerCase();
+    
+    // Si el elemento es un contenedor genérico, solo lo aceptamos si es la "hoja" final
+    // (es decir, no contiene otros bloques dentro de sí mismo, para evitar extraer el texto duplicado)
+    if (tag === 'div' || tag === 'li' || tag === 'blockquote') {
+      const hasBlockChild = Array.from(el.children).some(child => 
+        ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li', 'blockquote', 'div'].includes(child.tagName.toLowerCase())
+      );
+      if (hasBlockChild) return false;
     }
+    
     return true;
   });
 
   const paragraphs: string[] = [];
 
-  elements.forEach((el, index) => {
-    el.setAttribute('data-paragraph-index', String(index));
+  // Asignamos índices solo a los elementos que realmente pasaron el filtro y tienen texto
+  let actualIndex = 0;
+  elements.forEach((el) => {
     const text = el.textContent?.trim() ?? '';
-    
     if (text.length > 0) {
+      el.setAttribute('data-paragraph-index', String(actualIndex));
       paragraphs.push(text);
+      actualIndex++;
     }
   });
 

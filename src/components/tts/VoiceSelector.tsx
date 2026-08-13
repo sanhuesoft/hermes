@@ -14,20 +14,17 @@ export default function VoiceSelector() {
     fetchVoices()
       .then((loaded) => {
         setVoices(loaded);
-        if (loaded.length > 0 && !selectedVoice) {
-          // Preseleccionar la primera voz es-CL
-          const defaultVoice =
-            loaded.find((v) => v.ShortName.startsWith('es-CL-')) ?? loaded[0];
-          setSelectedVoice(defaultVoice);
-        }
+        // La autoselección se manejará en el store
       })
       .catch(console.error);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const grouped = {
-    'Español (Chile)': voices.filter((v) => v.Locale === 'es-CL'),
-    'English (US)':    voices.filter((v) => v.Locale === 'en-US'),
-  };
+  // Agrupar dinámicamente por Locale (es-CL, en-US, etc.)
+  const grouped = voices.reduce((acc, voice) => {
+    if (!acc[voice.Locale]) acc[voice.Locale] = [];
+    acc[voice.Locale].push(voice);
+    return acc;
+  }, {} as Record<string, typeof voices>);
 
   return (
     <div className="voice-selector">

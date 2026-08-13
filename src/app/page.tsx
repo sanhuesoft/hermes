@@ -3,13 +3,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { useReaderStore } from '@/stores/useReaderStore';
-import type { EpubMeta, Chapter, Highlight, HighlightColor } from '@/types/epub';
+import { useLibraryStore } from '@/stores/useLibraryStore';
+import { useTtsStore } from '@/stores/useTtsStore';
+import type { EpubMeta, Chapter, Highlight, HighlightColor, LibraryBook } from '@/types/epub';
 import type { EpubViewerHandle } from '@/components/reader/EpubViewer';
 import VoiceSelector from '@/components/tts/VoiceSelector';
 import TtsControls from '@/components/tts/TtsControls';
 import ZenOverlay from '@/components/reader/ZenOverlay';
 import HighlightMenu from '@/components/reader/HighlightMenu';
 import ReaderSettingsModal from '@/components/settings/ReaderSettingsModal';
+import LibraryView from '@/components/library/LibraryView';
 import { exportSidecar, importSidecar } from '@/lib/storage/sidecar-manager';
 
 // EpubViewer se carga solo en el cliente (usa epubjs que requiere el DOM)
@@ -27,16 +30,22 @@ const EpubViewer = dynamic(() => import('@/components/reader/EpubViewer'), {
 
 export default function Home() {
   // -------------------------------------------------------
-  // Estado del archivo cargado
+  // Vista activa: 'library' | 'reader'
   // -------------------------------------------------------
+  const [activeView, setActiveView] = useState<'library' | 'reader'>('library');
+
+  // -------------------------------------------------------
+  // Estado del libro abierto
+  // -------------------------------------------------------
+  const [activeBookId, setActiveBookId] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [fileBuffer, setFileBuffer] = useState<ArrayBuffer | null>(null);
   const [bookMeta, setBookMeta] = useState<EpubMeta | null>(null);
   const [toc, setToc] = useState<Chapter[]>([]);
   const [highlights, setHighlights] = useState<Highlight[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
 
   // -------------------------------------------------------
-  // Estado de UI
+  // Estado de UI del lector
   // -------------------------------------------------------
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -45,11 +54,11 @@ export default function Home() {
     text: string;
   } | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const importSidecarRef = useRef<HTMLInputElement>(null);
   const viewerRef = useRef<EpubViewerHandle>(null);
 
   const { theme, isZenMode, toggleZenMode } = useReaderStore();
+  const { openBook, updateHighlights } = useLibraryStore();
 
   // Aplicar data-theme al html para que las CSS vars funcionen
   useEffect(() => {
@@ -57,35 +66,41 @@ export default function Home() {
   }, [theme]);
 
   // -------------------------------------------------------
-  // Manejo de archivo
+  // Abrir un libro desde la biblioteca
   // -------------------------------------------------------
-  const handleFile = useCallback((selectedFile: File) => {
-    if (!selectedFile.name.endsWith('.epub')) {
-      alert('Por favor selecciona un archivo .epub');
-      return;
-    }
-    setFile(selectedFile);
-    setHighlights([]);
-    setToc([]);
-    setBookMeta(null);
-  }, []);
+  const handleOpenBook = useCallback(
+    async (book: LibraryBook) => {
+      // Registrar apertura y obtener datos actualizados
+      const updated = await openBook(book.id);
+      const target = updated ?? book;
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      setIsDragging(false);
-      const dropped = e.dataTransfer.files[0];
-      if (dropped) handleFile(dropped);
+      setActiveBookId(target.id);
+      setHighlights(target.highlights ?? []);
+      setFileBuffer(target.fileData);
+      setBookMeta(null);
+      setToc([]);
+      setFile(null);
+      setActiveView('reader');
     },
-    [handleFile]
+    [openBook]
   );
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-
-  const handleDragLeave = () => setIsDragging(false);
+  // -------------------------------------------------------
+  // Cerrar el lector y volver a la biblioteca
+  // -------------------------------------------------------
+  const handleCloseReader = useCallback(async () => {
+    // Guardar highlights antes de salir
+    if (activeBookId) {
+      await updateHighlights(activeBookId, highlights);
+    }
+    setActiveView('library');
+    setActiveBookId(null);
+    setFile(null);
+    setFileBuffer(null);
+    setBookMeta(null);
+    setToc([]);
+    setHighlights([]);
+  }, [activeBookId, highlights, updateHighlights]);
 
   // -------------------------------------------------------
   // Highlights
@@ -114,11 +129,9 @@ export default function Home() {
   // -------------------------------------------------------
   const handleExport = () => {
     if (!bookMeta) return;
-    exportSidecar(
-      bookMeta,
-      highlights,
-      file?.name.replace('.epub', '') ?? 'notas'
-    );
+    const name =
+      file?.name.replace('.epub', '') ?? bookMeta.title ?? 'notas';
+    exportSidecar(bookMeta, highlights, name);
   };
 
   const handleImportSidecar = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -133,80 +146,41 @@ export default function Home() {
   };
 
   // -------------------------------------------------------
-  // Pantalla de dropzone
+  // Vista: Biblioteca
   // -------------------------------------------------------
-  if (!file) {
-    return (
-      <main className="dropzone">
-        <div
-          id="epub-dropzone"
-          className={`dropzone__card ${isDragging ? 'dropzone__card--dragging' : ''}`}
-          onDrop={handleDrop}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onClick={() => fileInputRef.current?.click()}
-          role="button"
-          tabIndex={0}
-          aria-label="Zona de carga de archivo EPUB"
-          onKeyDown={(e) => e.key === 'Enter' && fileInputRef.current?.click()}
-        >
-          <div className="dropzone__icon">📚</div>
-
-          <h1 className="dropzone__title">EReader</h1>
-
-          <p className="dropzone__subtitle">
-            Arrastra un archivo <strong>.epub</strong> aquí<br />
-            o haz clic para seleccionarlo
-          </p>
-
-          <button
-            id="epub-open-btn"
-            className="dropzone__btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              fileInputRef.current?.click();
-            }}
-          >
-            📂 Abrir archivo
-          </button>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".epub"
-            style={{ display: 'none' }}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-            }}
-          />
-        </div>
-
-        <div className="dropzone__features">
-          <span className="dropzone__feature">🔒 100% local</span>
-          <span className="dropzone__feature">🎙️ Voz Edge TTS</span>
-          <span className="dropzone__feature">✏️ Anotaciones</span>
-          <span className="dropzone__feature">🌙 Modo Zen</span>
-        </div>
-      </main>
-    );
+  if (activeView === 'library') {
+    return <LibraryView onOpenBook={handleOpenBook} />;
   }
 
   // -------------------------------------------------------
-  // Interfaz de lectura
+  // Vista: Lector
   // -------------------------------------------------------
+
+  // Crear un File virtual desde el ArrayBuffer guardado en IndexedDB
+  const epubSource = fileBuffer
+    ? new File([fileBuffer], bookMeta?.title ?? 'book.epub', {
+        type: 'application/epub+zip',
+      })
+    : file;
+
+  if (!epubSource) {
+    // Fallback: si no hay fuente, volver a la biblioteca
+    setActiveView('library');
+    return null;
+  }
+
   return (
     <ZenOverlay>
       <div className="reader-layout" data-theme={theme}>
         {/* Header */}
         <header className={`reader-header ${isZenMode ? 'reader-header--hidden' : ''}`}>
-          {/* Cerrar libro */}
+          {/* Volver a la biblioteca */}
           <button
             id="reader-close-btn"
             className="reader-header__btn"
-            onClick={() => setFile(null)}
-            title="Cerrar libro"
-            aria-label="Cerrar libro"
+            onClick={handleCloseReader}
+            title="Volver a la biblioteca"
+            aria-label="Volver a la biblioteca"
           >
             ←
           </button>
@@ -224,7 +198,7 @@ export default function Home() {
 
           {/* Título del libro */}
           <span className="reader-header__title">
-            {bookMeta?.title ?? file.name}
+            {bookMeta?.title ?? epubSource.name}
           </span>
 
           {/* Exportar notas */}
@@ -306,10 +280,15 @@ export default function Home() {
           <main className="reader-main" id="reader-main">
             <EpubViewer
               ref={viewerRef}
-              file={file}
+              file={epubSource}
               onBookLoaded={(meta, chapters) => {
                 setBookMeta(meta);
                 setToc(chapters);
+                if (meta.language) {
+                  const ttsStore = useTtsStore.getState();
+                  ttsStore.setBookLanguage(meta.language);
+                  ttsStore.autoSelectVoice();
+                }
               }}
               onHighlightRequest={(cfiRange, text) =>
                 setHighlightRequest({ cfiRange, text })
