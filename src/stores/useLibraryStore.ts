@@ -11,6 +11,7 @@ import {
   saveFolder,
   deleteFolder as dbDeleteFolder,
 } from '@/lib/storage/library-db';
+import { createBaseCitekey, createUniqueCitekey } from '@/lib/storage/citekey';
 
 // ----------------------------------------------------------------
 // Tipos del store
@@ -36,14 +37,15 @@ interface LibraryStore {
     fileName: string,
     fileData: ArrayBuffer,
     meta: EpubMeta,
-    coverData: ArrayBuffer | null
+    coverData: ArrayBuffer | null,
+    coverMimeType?: string | null
   ) => Promise<LibraryBook>;
   openBook: (id: string) => Promise<LibraryBook | undefined>;
   moveBook: (bookId: string, folderId: string | null) => Promise<void>;
   removeBook: (id: string) => Promise<void>;
   updateHighlights: (bookId: string, highlights: Highlight[]) => Promise<void>;
   updateBookmarks: (bookId: string, bookmarks: Bookmark[]) => Promise<void>;
-  updateCover: (bookId: string, coverData: ArrayBuffer) => Promise<void>;
+  updateCover: (bookId: string, coverData: ArrayBuffer, coverMimeType?: string) => Promise<void>;
   updateProgress: (bookId: string, cfi: string) => Promise<void>;
 
   // Carpetas
@@ -96,38 +98,12 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   // Libros
   // ---------------------------------------------------------------
 
-  addBook: async (fileName, fileData, meta, coverData) => {
-    // Generar citekey ID
-    let namePart = 'unknown';
-    if (meta.author) {
-      const parts = meta.author.split(/[,\s]+/);
-      if (meta.author.includes(',')) {
-        namePart = parts[0];
-      } else {
-        namePart = parts[parts.length - 1];
-      }
+  addBook: async (fileName, fileData, meta, coverData, coverMimeType) => {
+    const baseCitekey = createBaseCitekey(meta);
+    if (!baseCitekey) {
+      throw new Error('El autor y el año de publicación son necesarios para crear el citekey.');
     }
-    // normalizar acentos y remover caracteres no alfanuméricos
-    namePart = namePart.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!namePart) namePart = 'book';
-
-    let yearPart = new Date().getFullYear().toString();
-    if (meta.pubdate) {
-      const yearMatch = meta.pubdate.match(/\d{4}/);
-      if (yearMatch) yearPart = yearMatch[0];
-    }
-    
-    let baseCitekey = `${namePart}${yearPart}`;
-    let finalId = baseCitekey;
-    const books = get().books;
-    
-    // Deduplicación si ya existe el ID
-    let counter = 0;
-    while (books.some(b => b.id === finalId)) {
-      counter++;
-      const suffix = String.fromCharCode(96 + counter); // a, b, c...
-      finalId = `${baseCitekey}${suffix}`;
-    }
+    const finalId = createUniqueCitekey(baseCitekey, get().books.map((book) => book.id));
 
     const book: LibraryBook = {
       id: finalId,
@@ -135,6 +111,7 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       fileName,
       fileData,
       coverData,
+      coverMimeType,
       meta,
       addedAt: new Date().toISOString(),
       lastOpenedAt: null,
@@ -212,10 +189,10 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     }));
   },
 
-  updateCover: async (bookId, coverData) => {
+  updateCover: async (bookId, coverData, coverMimeType) => {
     const book = get().books.find((b) => b.id === bookId);
     if (!book) return;
-    const updated = { ...book, coverData };
+    const updated = { ...book, coverData, coverMimeType: coverMimeType || book.coverMimeType };
     await saveBook(updated);
     set((state) => ({
       books: state.books.map((b) => (b.id === bookId ? updated : b)),

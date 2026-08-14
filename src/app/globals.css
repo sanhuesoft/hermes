@@ -1693,6 +1693,184 @@ textarea:focus-visible,
   opacity: 1;
 }
 
+/* Modal de confirmación de metadatos al importar */
+.book-meta-modal {
+  width: min(100%, 460px);
+  max-height: 90dvh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.28);
+  animation: scaleIn 0.2s ease;
+}
+
+.book-meta-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.35rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.book-meta-modal__heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.book-meta-modal__heading h2,
+.book-meta-modal__heading p {
+  margin: 0;
+}
+
+.book-meta-modal__heading h2 {
+  font-size: 1.05rem;
+  line-height: 1.3;
+}
+
+.book-meta-modal__heading p {
+  margin-top: 0.2rem;
+  max-width: 300px;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.book-meta-modal__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+}
+
+.book-meta-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem 1.35rem;
+}
+
+.book-meta-modal__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.book-meta-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.book-meta-field > span,
+.book-meta-citekey > span {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.book-meta-field small {
+  font-weight: 400;
+}
+
+.book-meta-field input {
+  width: 100%;
+  height: 38px;
+  padding: 0 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.85rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.book-meta-field input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-dim);
+}
+
+.book-meta-citekey {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 0.15rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--color-accent-dim);
+}
+
+.book-meta-citekey code {
+  color: var(--color-accent);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.book-meta-modal__queue {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.book-meta-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0 1.35rem 1.25rem;
+}
+
+.book-meta-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 38px;
+  padding: 0.45rem 0.9rem;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.book-meta-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.book-meta-btn--secondary {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+}
+
+.book-meta-btn--secondary:hover:not(:disabled) {
+  background: var(--color-accent-dim);
+}
+
+.book-meta-btn--primary {
+  background: var(--color-accent);
+  color: white;
+}
+
+.book-meta-btn--primary:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
 /* ============================================================
    Spinner de carga de biblioteca
    ============================================================ */

@@ -75,7 +75,7 @@ export default function LibraryView({ onOpenBook }: LibraryViewProps) {
         )}
 
         {/* FAB para añadir libros */}
-        <AddBookButton />
+        <AddBookButton onBookAdded={loadLibrary} />
       </main>
     </div>
   );

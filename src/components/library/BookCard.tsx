@@ -58,9 +58,12 @@ function relativeTime(dateStr: string | null): string {
 }
 
 /** Convierte ArrayBuffer a blob URL — se llama al montar el componente */
-function bufferToObjectURL(buffer: ArrayBuffer | null | undefined): string | null {
+function bufferToObjectURL(
+  buffer: ArrayBuffer | null | undefined,
+  mimeType?: string | null
+): string | null {
   if (!buffer || buffer.byteLength === 0) return null;
-  const blob = new Blob([buffer]);
+  const blob = new Blob([buffer], { type: mimeType || 'image/jpeg' });
   return URL.createObjectURL(blob);
 }
 
@@ -69,7 +72,10 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
   const { folders, moveBook, removeBook, updateCover } = useLibraryStore();
 
   // ---------- Cover URL (regenerada desde coverData en cada montaje) ----------
-  const coverUrl = useMemo(() => bufferToObjectURL(book.coverData), [book.coverData]);
+  const coverUrl = useMemo(
+    () => bufferToObjectURL(book.coverData, book.coverMimeType),
+    [book.coverData, book.coverMimeType]
+  );
 
   useEffect(() => {
     return () => {
@@ -120,7 +126,7 @@ export default function BookCard({ book, onOpen }: BookCardProps) {
       return;
     }
     const newCoverData = await imgFile.arrayBuffer();
-    await updateCover(book.id, newCoverData);
+    await updateCover(book.id, newCoverData, imgFile.type);
     setMenuOpen(false);
     if (coverInputRef.current) coverInputRef.current.value = '';
   };
