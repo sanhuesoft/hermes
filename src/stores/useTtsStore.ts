@@ -15,6 +15,7 @@ interface TtsStore {
   error?: string;
   chapterTitle: string;
   bookLanguage: string;
+  playbackRate: number;
 
   // Acciones
   setVoices: (voices: Voice[]) => void;
@@ -26,6 +27,7 @@ interface TtsStore {
   setError: (error: string) => void;
   setChapterTitle: (title: string) => void;
   setBookLanguage: (lang: string) => void;
+  setPlaybackRate: (rate: number) => void;
   autoSelectVoice: () => void;
   nextParagraph: () => void;
   prevParagraph: () => void;
@@ -47,9 +49,11 @@ export const useTtsStore = create<TtsStore>()(
       paragraphs: [],
       chapterTitle: '',
       bookLanguage: 'es',
+      playbackRate: 1,
 
       setChapterTitle: (title) => set({ chapterTitle: title }),
       setBookLanguage: (lang) => set({ bookLanguage: lang }),
+      setPlaybackRate: (rate) => set({ playbackRate: rate }),
 
       autoSelectVoice: () => {
         const { voices, bookLanguage, selectedVoice } = get();

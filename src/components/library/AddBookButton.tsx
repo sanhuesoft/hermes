@@ -71,6 +71,7 @@ async function parseEpubMeta(
       identifier: rawMeta.identifier || `file-${Date.now()}`,
       language: rawMeta.language || 'es',
       publisher: rawMeta.publisher,
+      pubdate: rawMeta.pubdate,
       cover: undefined,
     },
     coverData,

@@ -42,6 +42,7 @@ export interface EpubMeta {
   identifier: string;
   language: string;
   publisher?: string;
+  pubdate?: string;
   cover?: string; // blob URL efímera (generada en runtime desde coverData, NO persiste)
 }
 

@@ -97,8 +97,40 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   // ---------------------------------------------------------------
 
   addBook: async (fileName, fileData, meta, coverData) => {
+    // Generar citekey ID
+    let namePart = 'unknown';
+    if (meta.author) {
+      const parts = meta.author.split(/[,\s]+/);
+      if (meta.author.includes(',')) {
+        namePart = parts[0];
+      } else {
+        namePart = parts[parts.length - 1];
+      }
+    }
+    // normalizar acentos y remover caracteres no alfanuméricos
+    namePart = namePart.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!namePart) namePart = 'book';
+
+    let yearPart = new Date().getFullYear().toString();
+    if (meta.pubdate) {
+      const yearMatch = meta.pubdate.match(/\d{4}/);
+      if (yearMatch) yearPart = yearMatch[0];
+    }
+    
+    let baseCitekey = `${namePart}${yearPart}`;
+    let finalId = baseCitekey;
+    const books = get().books;
+    
+    // Deduplicación si ya existe el ID
+    let counter = 0;
+    while (books.some(b => b.id === finalId)) {
+      counter++;
+      const suffix = String.fromCharCode(96 + counter); // a, b, c...
+      finalId = `${baseCitekey}${suffix}`;
+    }
+
     const book: LibraryBook = {
-      id: `book_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      id: finalId,
       folderId: null,
       fileName,
       fileData,

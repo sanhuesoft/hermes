@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<body>
+<div id="test">Hello <b>world!</b> How are you? This is a test.</div>
+<script>
+function wrapSentences(node) {
+  if (node.nodeType === 3) {
+    const text = node.nodeValue;
+    if (text.trim().length === 0) return;
+    const sentences = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g);
+    if (!sentences || sentences.length <= 1) return; // Not breaking it up if 1
+    const fragment = document.createDocumentFragment();
+    sentences.forEach(s => {
+      const span = document.createElement('span');
+      span.className = 'tts-sentence';
+      span.style.breakInside = 'avoid';
+      span.style.display = 'inline-block';
+      span.textContent = s;
+      fragment.appendChild(span);
+    });
+    node.parentNode.replaceChild(fragment, node);
+  } else if (node.nodeType === 1) {
+    Array.from(node.childNodes).forEach(wrapSentences);
+  }
+}
+wrapSentences(document.getElementById('test'));
+console.log(document.getElementById('test').innerHTML);
+</script>
+</body>
+</html>

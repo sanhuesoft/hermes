@@ -27,19 +27,18 @@ export default function VoiceSelector() {
   }, {} as Record<string, typeof voices>);
 
   return (
-    <div className="voice-selector">
-      <label htmlFor="voice-select" className="voice-selector__label">
-        Voz
-      </label>
+    <div className="voice-selector" style={{ width: '100%' }}>
       <select
         id="voice-select"
         className="voice-selector__select"
+        style={{ width: '100%' }}
         value={selectedVoice?.ShortName ?? ''}
         onChange={(e) => {
           const voice = voices.find((v) => v.ShortName === e.target.value);
           if (voice) setSelectedVoice(voice);
         }}
         disabled={voices.length === 0}
+        aria-label="Voz"
       >
         {voices.length === 0 && (
           <option value="">Cargando voces…</option>

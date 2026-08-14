@@ -9,6 +9,8 @@ import {
   BookmarkCheck as BookmarkFilledIcon,
   Download,
   Focus,
+  Menu,
+  Minimize2,
   PanelLeft,
   PanelRight,
   Settings,
@@ -521,9 +523,8 @@ export default function Home() {
           </main>
         </div>
 
-        {/* Footer: voz + controles TTS */}
+        {/* Footer: controles TTS */}
         <footer className={`reader-footer ${isZenMode ? 'reader-footer--hidden' : ''}`}>
-          <VoiceSelector />
           <TtsControls />
         </footer>
 
@@ -560,6 +561,18 @@ export default function Home() {
               {hoveredHighlight.highlight.note}
             </p>
           </div>
+        )}
+
+        {/* Botón flotante para salir del Modo Zen */}
+        {isZenMode && (
+          <button
+            className="zen-exit-btn"
+            onClick={toggleZenMode}
+            title="Salir del modo Zen"
+            aria-label="Salir del modo Zen"
+          >
+            <Minimize2 size={22} aria-hidden="true" />
+          </button>
         )}
 
         {/* Modal de ajustes */}

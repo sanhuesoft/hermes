@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
-import { LoaderCircle, Pause, Play, SkipBack, SkipForward, Square } from 'lucide-react';
+import { useEffect, useRef, useCallback, useState } from 'react';
+import { LoaderCircle, Pause, Play, SkipBack, SkipForward, Square, Settings2, X } from 'lucide-react';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { synthesizeSpeech } from '@/lib/tts/edge-tts-client';
 import { splitIntoSentences } from '@/lib/epub/parser';
+import VoiceSelector from './VoiceSelector';
 
 export default function TtsControls() {
   const {
@@ -14,17 +15,20 @@ export default function TtsControls() {
     paragraphs,
     selectedVoice,
     chapterTitle,
+    playbackRate,
     setStatus,
     setError,
     nextParagraph,
     prevParagraph,
     stop,
     clearJump,
+    setPlaybackRate,
   } = useTtsStore();
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentBlobUrl = useRef<string | null>(null);
   const playIdRef = useRef<number>(0);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Caché de precarga de párrafos: almacena pares [index, blobUrls[]]
   const prefetchedCache = useRef<Map<number, string[]>>(new Map());
@@ -129,9 +133,12 @@ export default function TtsControls() {
     playIdRef.current++;
     clearPrefetchCache();
 
-    if (audioRef.current) {
+    if (!audioRef.current) {
+      audioRef.current = new Audio();
+      audioRef.current.playbackRate = playbackRate;
+    } else {
       audioRef.current.pause();
-      audioRef.current = null;
+      audioRef.current.playbackRate = playbackRate;
     }
     if (currentBlobUrl.current) {
       URL.revokeObjectURL(currentBlobUrl.current);
@@ -250,6 +257,7 @@ export default function TtsControls() {
         if (!audio) {
           audio = new Audio(blobUrl);
           audio.preload = 'auto';
+          audio.playbackRate = playbackRate;
           audioElements[i] = audio;
         }
 
@@ -258,15 +266,13 @@ export default function TtsControls() {
         if (nextUrl && !audioElements[i + 1]) {
           const nextAudio = new Audio(nextUrl);
           nextAudio.preload = 'auto';
+          nextAudio.playbackRate = playbackRate;
           audioElements[i + 1] = nextAudio;
         }
 
         audioRef.current = audio;
 
         if (currentBlobUrl.current && currentBlobUrl.current !== blobUrl) {
-          // Nota: Si venía de caché no lo revocamos aquí, sino que limpiamos todo al final
-          // o al cambiar de capítulo/voz para evitar memory leaks.
-          // Para audios efímeros locales generados al vuelo, los revocamos normalmente.
           if (!cachedUrls) {
             URL.revokeObjectURL(currentBlobUrl.current);
           }
@@ -296,7 +302,7 @@ export default function TtsControls() {
       console.error('[TTS] Excepción capturada:', err);
       setError(err instanceof Error ? err.message : 'Error desconocido');
     }
-  }, [selectedVoice, paragraphs, setStatus, prefetchNextParagraphs, nextParagraph, stop, setError]);
+  }, [selectedVoice, paragraphs, setStatus, prefetchNextParagraphs, nextParagraph, stop, setError, playbackRate]);
 
   const handlePlay = useCallback(() => {
     if (paragraphs.length === 0 || !selectedVoice) return;
@@ -311,12 +317,23 @@ export default function TtsControls() {
 
   const handleResume = useCallback(() => {
     if (audioRef.current) {
-      audioRef.current.play();
+      audioRef.current.playbackRate = playbackRate;
+      audioRef.current.play().catch(e => {
+        console.warn('Error resuming audio:', e);
+        setStatus('error');
+      });
       setStatus('playing');
     } else {
-      playCurrent(activeParagraphIndex);
+      handlePlay();
     }
-  }, [playCurrent, activeParagraphIndex, setStatus]);
+  }, [handlePlay, setStatus, playbackRate]);
+
+  // Aplicar cambios de velocidad al vuelo
+  useEffect(() => {
+    if (audioRef.current) {
+      audioRef.current.playbackRate = playbackRate;
+    }
+  }, [playbackRate]);
 
   const handleStop = useCallback(() => {
     playIdRef.current++;
@@ -452,7 +469,51 @@ export default function TtsControls() {
         >
           <Square size={15} fill="currentColor" aria-hidden="true" />
         </button>
+
+        <button
+          onClick={() => setShowSettings(!showSettings)}
+          aria-label="Ajustes de voz"
+          className={`tts-btn ${showSettings ? 'tts-btn--active' : ''}`}
+          style={{ marginLeft: '0.25rem' }}
+        >
+          <Settings2 size={17} aria-hidden="true" />
+        </button>
       </div>
+
+      {/* Popover de Ajustes TTS */}
+      {showSettings && (
+        <div className="tts-settings-popup">
+          <div className="tts-settings-header">
+            <span className="tts-settings-title">Ajustes de Voz</span>
+            <button className="tts-settings-close" onClick={() => setShowSettings(false)}>
+              <X size={16} />
+            </button>
+          </div>
+          
+          <div className="tts-setting-row">
+            <span className="tts-setting-label">Voz</span>
+            <VoiceSelector />
+          </div>
+
+          <div className="tts-setting-row">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="tts-setting-label">Velocidad</span>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                {playbackRate}x
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="2.5"
+              step="0.1"
+              value={playbackRate}
+              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+              style={{ accentColor: 'var(--color-accent)', width: '100%', cursor: 'pointer' }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
