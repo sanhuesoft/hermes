@@ -6,9 +6,13 @@
 
 :root {
   /* Paleta base */
-  --color-accent:        hsl(246, 80%, 62%);   /* Índigo vibrante */
-  --color-accent-hover:  hsl(246, 80%, 55%);
-  --color-accent-dim:    hsl(246, 80%, 62%, 0.15);
+  --color-active:        #6051ec;
+  --color-active-hover:  color-mix(in srgb, var(--color-active) 86%, black);
+  --color-active-dim:    color-mix(in srgb, var(--color-active) 15%, transparent);
+  /* Alias de compatibilidad para los componentes existentes. */
+  --color-accent:        var(--color-active);
+  --color-accent-hover:  var(--color-active-hover);
+  --color-accent-dim:    var(--color-active-dim);
 
   /* Tema Claro */
   --bg-primary:   #fafaf9;
@@ -782,11 +786,19 @@ textarea:focus-visible,
   border-radius: 14px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
   padding: 1rem;
-  width: 320px;
+  width: min(320px, calc(100vw - 16px));
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
   animation: slideUp 0.2s ease;
+}
+
+.annotations-section-title {
+  margin-top: 1.5rem;
+}
+
+.annotations-list--bookmarks {
+  padding-bottom: 0.5rem;
 }
 
 @keyframes slideUp {
@@ -1058,6 +1070,26 @@ textarea:focus-visible,
 .settings-slider {
   width: 100%;
   accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+.settings-color-control {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: fit-content;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.settings-color-picker {
+  width: 48px;
+  height: 34px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-surface);
   cursor: pointer;
 }
 

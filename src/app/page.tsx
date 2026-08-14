@@ -72,6 +72,7 @@ export default function Home() {
   const [highlightRequest, setHighlightRequest] = useState<{
     cfiRange: string;
     text: string;
+    position?: { x: number; y: number };
   } | null>(null);
   const [hoveredHighlight, setHoveredHighlight] = useState<{
     highlight: Highlight;
@@ -81,13 +82,19 @@ export default function Home() {
   const importSidecarRef = useRef<HTMLInputElement>(null);
   const viewerRef = useRef<EpubViewerHandle>(null);
 
-  const { theme, isZenMode, toggleZenMode } = useReaderStore();
+  const { theme, activeColor, isZenMode, toggleZenMode } = useReaderStore();
   const { openBook, updateHighlights, updateBookmarks, updateProgress } = useLibraryStore();
 
   // Aplicar data-theme al html para que las CSS vars funcionen
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
+
+  // El color activo es una preferencia persistida y alimenta toda la paleta de
+  // interacción mediante variables CSS derivadas.
+  useEffect(() => {
+    document.documentElement.style.setProperty('--color-active', activeColor);
+  }, [activeColor]);
 
   // -------------------------------------------------------
   // Abrir un libro desde la biblioteca
@@ -175,6 +182,7 @@ export default function Home() {
         }
         return updated;
       });
+      viewerRef.current?.clearSelection();
       setHighlightRequest(null);
     },
     [highlightRequest, activeBookId, updateHighlights]
@@ -348,8 +356,8 @@ export default function Home() {
             id="reader-annotations-btn"
             className={`reader-header__btn${annotationsPanelOpen ? ' reader-header__btn--active' : ''}`}
             onClick={() => setAnnotationsPanelOpen((v) => !v)}
-            title="Subrayados y notas"
-            aria-label="Subrayados y notas"
+            title="Notas y marcadores"
+            aria-label="Notas y marcadores"
             aria-pressed={annotationsPanelOpen}
           >
             <PanelRight size={20} aria-hidden="true" />
@@ -387,25 +395,6 @@ export default function Home() {
               </button>
             ))}
 
-            {bookmarks.length > 0 && (
-              <>
-                <p className="toc-title" style={{ marginTop: '1.5rem' }}>Marcadores</p>
-                {bookmarks.map((bm) => (
-                  <button
-                    key={bm.id}
-                    className="toc-item"
-                    title={bm.label}
-                    onClick={() => {
-                      viewerRef.current?.goToChapter(bm.cfi);
-                      setSidebarOpen(false);
-                    }}
-                  >
-                    <BookmarkIcon size={14} aria-hidden="true" />
-                    <span>{new Date(bm.createdAt).toLocaleDateString()} {new Date(bm.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                  </button>
-                ))}
-              </>
-            )}
           </aside>
 
           {/* Panel de anotaciones derecho */}
@@ -414,7 +403,7 @@ export default function Home() {
             className={`reader-annotations-panel ${!annotationsPanelOpen ? 'reader-annotations-panel--hidden' : ''}`}
           >
             <p className="toc-title">
-              Subrayados
+              Subrayados y notas
               <span className="annotations-count">{highlights.length}</span>
             </p>
 
@@ -487,6 +476,35 @@ export default function Home() {
                 })}
               </div>
             )}
+
+            <p className="toc-title annotations-section-title">
+              Marcadores
+              <span className="annotations-count">{bookmarks.length}</span>
+            </p>
+
+            {bookmarks.length === 0 ? (
+              <p className="annotations-empty">No hay marcadores aún.</p>
+            ) : (
+              <div className="annotations-list annotations-list--bookmarks">
+                {bookmarks.map((bookmark) => (
+                  <button
+                    key={bookmark.id}
+                    className="toc-item"
+                    title={bookmark.label}
+                    onClick={() => {
+                      viewerRef.current?.goToChapter(bookmark.cfi);
+                      setAnnotationsPanelOpen(false);
+                    }}
+                  >
+                    <BookmarkIcon size={14} aria-hidden="true" />
+                    <span>
+                      {new Date(bookmark.createdAt).toLocaleDateString()}{' '}
+                      {new Date(bookmark.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </aside>
 
           {/* Área de lectura */}
@@ -507,8 +525,8 @@ export default function Home() {
                   ttsStore.autoSelectVoice();
                 }
               }}
-              onHighlightRequest={(cfiRange, text) =>
-                setHighlightRequest({ cfiRange, text })
+              onHighlightRequest={(cfiRange, text, position) =>
+                setHighlightRequest({ cfiRange, text, position })
               }
               onHighlightHover={(hl, pos) => {
                 if (hl && pos) {
@@ -533,8 +551,12 @@ export default function Home() {
           <HighlightMenu
             cfiRange={highlightRequest.cfiRange}
             selectedText={highlightRequest.text}
+            position={highlightRequest.position}
             onConfirm={handleHighlightConfirm}
-            onCancel={() => setHighlightRequest(null)}
+            onCancel={() => {
+              viewerRef.current?.clearSelection();
+              setHighlightRequest(null);
+            }}
           />
         )}
 

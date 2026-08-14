@@ -64,7 +64,7 @@ export function restoreHighlights(rendition: Rendition, highlights: Highlight[])
  * Encuentra el Range exacto de una frase dentro de un párrafo,
  * soportando que la frase esté dividida en múltiples nodos de texto (ej. por tags <em> o <strong>).
  */
-function findSentenceRange(paragraph: HTMLElement, sentenceText: string): Range | null {
+export function findSentenceRange(paragraph: HTMLElement, sentenceText: string): Range | null {
   if (!sentenceText) return null;
   
   const doc = paragraph.ownerDocument;

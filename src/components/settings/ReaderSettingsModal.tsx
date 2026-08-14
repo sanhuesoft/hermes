@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
-import { Moon, ScrollText, Sun, X, type LucideIcon } from 'lucide-react';
+import { Columns3, Moon, Rows3, ScrollText, Sun, X, type LucideIcon } from 'lucide-react';
 import { useReaderStore } from '@/stores/useReaderStore';
-import type { ReaderTheme, FontFamily } from '@/types/epub';
+import type { ReaderTheme, ReaderViewMode, FontFamily } from '@/types/epub';
 
 interface ReaderSettingsModalProps {
   open: boolean;
@@ -14,6 +14,11 @@ const THEMES: { id: ReaderTheme; label: string; icon: LucideIcon }[] = [
   { id: 'light', label: 'Claro',  icon: Sun },
   { id: 'dark',  label: 'Oscuro', icon: Moon },
   { id: 'sepia', label: 'Sepia',  icon: ScrollText },
+];
+
+const VIEW_MODES: { id: ReaderViewMode; label: string; icon: LucideIcon }[] = [
+  { id: 'paginated', label: 'Páginas', icon: Columns3 },
+  { id: 'continuous', label: 'Continuo', icon: Rows3 },
 ];
 
 const FONTS: { id: FontFamily; label: string; preview: string }[] = [
@@ -28,8 +33,8 @@ const LINE_HEIGHTS = [1.2, 1.5, 1.8, 2.0];
 
 export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsModalProps) {
   const {
-    theme, fontFamily, fontSize, lineHeight, marginX,
-    setTheme, setFontFamily, setFontSize, setLineHeight, setMarginX,
+    theme, viewMode, activeColor, fontFamily, fontSize, lineHeight, marginX,
+    setTheme, setViewMode, setActiveColor, setFontFamily, setFontSize, setLineHeight, setMarginX,
   } = useReaderStore();
 
   useEffect(() => {
@@ -68,6 +73,47 @@ export default function ReaderSettingsModal({ open, onClose }: ReaderSettingsMod
         </div>
 
         <div className="settings-modal__body">
+          {/* Modo de lectura */}
+          <section className="settings-section">
+            <h3 className="settings-section__label">Modo de lectura</h3>
+            <div className="settings-section__group">
+              {VIEW_MODES.map((mode) => {
+                const ModeIcon = mode.icon;
+                return (
+                  <button
+                    key={mode.id}
+                    id={`view-mode-btn-${mode.id}`}
+                    onClick={() => setViewMode(mode.id)}
+                    aria-pressed={viewMode === mode.id}
+                    className={`settings-theme-btn ${viewMode === mode.id ? 'settings-theme-btn--active' : ''}`}
+                  >
+                    <ModeIcon size={19} aria-hidden="true" />
+                    <span>{mode.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Color activo */}
+          <section className="settings-section">
+            <h3 className="settings-section__label">
+              Color activo
+              <span className="settings-section__value">{activeColor.toUpperCase()}</span>
+            </h3>
+            <label className="settings-color-control" htmlFor="active-color-picker">
+              <input
+                id="active-color-picker"
+                type="color"
+                value={activeColor}
+                onChange={(event) => setActiveColor(event.target.value)}
+                className="settings-color-picker"
+                aria-label="Color activo"
+              />
+              <span>Elegir color</span>
+            </label>
+          </section>
+
           {/* Tema */}
           <section className="settings-section">
             <h3 className="settings-section__label">Tema</h3>

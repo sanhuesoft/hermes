@@ -83,6 +83,8 @@ export interface SidecarFile {
 
 export type ReaderTheme = 'light' | 'dark' | 'sepia';
 
+export type ReaderViewMode = 'paginated' | 'continuous';
+
 export type FontFamily =
   | 'inter'
   | 'merriweather'
@@ -92,6 +94,8 @@ export type FontFamily =
 
 export interface ReaderSettings {
   theme: ReaderTheme;
+  viewMode: ReaderViewMode;
+  activeColor: string;   // color hexadecimal usado para acciones y enlaces
   fontFamily: FontFamily;
   fontSize: number;      // 12–32 px
   lineHeight: number;    // 1.2 | 1.5 | 1.8 | 2.0

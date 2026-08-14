@@ -1,11 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import type { HighlightColor } from '@/types/epub';
 
 interface HighlightMenuProps {
   cfiRange: string;
   selectedText: string;
+  position?: { x: number; y: number };
   onConfirm: (color: HighlightColor, note?: string) => void;
   onCancel: () => void;
 }
@@ -19,14 +20,51 @@ const COLORS: { id: HighlightColor; label: string; bg: string }[] = [
 
 export default function HighlightMenu({
   selectedText,
+  position,
   onConfirm,
   onCancel,
 }: HighlightMenuProps) {
   const [selectedColor, setSelectedColor] = useState<HighlightColor>('yellow');
   const [note, setNote] = useState('');
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPosition, setMenuPosition] = useState<{ left: number; top: number } | null>(null);
+
+  const updateMenuPosition = useCallback(() => {
+    if (!position || !menuRef.current) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const menuRect = menuRef.current.getBoundingClientRect();
+    const viewportPadding = 8;
+    const gap = 10;
+    const halfWidth = menuRect.width / 2;
+    const left = Math.min(
+      window.innerWidth - halfWidth - viewportPadding,
+      Math.max(halfWidth + viewportPadding, position.x)
+    );
+    const fitsBelow = position.y + gap + menuRect.height <= window.innerHeight - viewportPadding;
+    const top = fitsBelow
+      ? position.y + gap
+      : Math.max(viewportPadding, position.y - menuRect.height - gap);
+
+    setMenuPosition({ left, top });
+  }, [position]);
+
+  useLayoutEffect(() => {
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    return () => window.removeEventListener('resize', updateMenuPosition);
+  }, [updateMenuPosition]);
 
   return (
-    <div className="highlight-menu" role="dialog" aria-label="Menú de resaltado">
+    <div
+      ref={menuRef}
+      className="highlight-menu"
+      role="dialog"
+      aria-label="Menú de resaltado"
+      style={menuPosition ? { left: menuPosition.left, top: menuPosition.top, bottom: 'auto' } : undefined}
+    >
       {/* Texto seleccionado */}
       <p className="highlight-menu__preview">
         &ldquo;{selectedText.slice(0, 80)}{selectedText.length > 80 ? '…' : ''}&rdquo;

@@ -2,29 +2,34 @@
 
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import Epub, { Book, Rendition } from 'epubjs';
+import Epub, { Book, EpubCFI, Rendition } from 'epubjs';
 import { useReaderStore } from '@/stores/useReaderStore';
 import { useTtsStore } from '@/stores/useTtsStore';
 import { extractParagraphs, splitIntoSentences } from '@/lib/epub/parser';
-import { highlightActiveParagraph, getSentenceIndexFromPoint, highlightHoverSentence, clearHoverSentence } from '@/lib/epub/highlight-manager';
+import { highlightActiveParagraph, findSentenceRange, getSentenceIndexFromPoint, highlightHoverSentence, clearHoverSentence } from '@/lib/epub/highlight-manager';
 import type { EpubMeta, Chapter, Highlight } from '@/types/epub';
 
 type RenditionContents = {
   document?: Document;
+  window?: Window;
   sectionIndex?: number;
+  cfiFromRange?: (range: Range, ignoreClass?: string) => string;
 };
+
+type SelectionPosition = { x: number; y: number };
 
 export interface EpubViewerHandle {
   goToChapter: (href: string) => void;
   nextPage: () => void;
   prevPage: () => void;
   getCurrentCfi: () => string | undefined;
+  clearSelection: () => void;
 }
 
 interface EpubViewerProps {
   file: File;
   onBookLoaded: (meta: EpubMeta, toc: Chapter[]) => void;
-  onHighlightRequest: (cfiRange: string, text: string) => void;
+  onHighlightRequest: (cfiRange: string, text: string, position?: SelectionPosition) => void;
   highlights: Highlight[];
   /** CFI de la última posición guardada (para restaurar progreso) */
   initialCfi?: string | null;
@@ -74,6 +79,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
+  const loadedFileRef = useRef<File | null>(null);
+  const activeColorRef = useRef(useReaderStore.getState().activeColor);
   const lastTtsTargetRef = useRef<string | null>(null);
   const ttsNavigationIdRef = useRef(0);
   // Ref para el último CFI, para guardar progreso sin re-renders
@@ -99,7 +106,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     onLocationChangeRef.current = onLocationChange;
   }, [onLocationChange]);
 
-  const { theme, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
+  const { theme, viewMode, activeColor, fontFamily, fontSize, lineHeight, marginX } = useReaderStore();
   const { setParagraphs } = useTtsStore();
 
   // -------------------------------------------------------
@@ -111,9 +118,19 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     const loadBook = async () => {
       if (!containerRef.current || !file) return;
 
+      // Un cambio de modo conserva la ubicación actual; un archivo nuevo parte
+      // desde el CFI que entrega la biblioteca.
+      if (loadedFileRef.current !== file) {
+        loadedFileRef.current = file;
+        lastCfiRef.current = initialCfi ?? null;
+      }
+
       // Limpiar contenedor físico
       containerRef.current.innerHTML = '';
       renderedHighlightsRef.current.clear();
+      sectionParagraphsMapRef.current.clear();
+      lastTtsTargetRef.current = null;
+      ttsNavigationIdRef.current++;
 
       if (bookRef.current) {
         bookRef.current.destroy();
@@ -133,12 +150,22 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       const rendition = book.renderTo(containerRef.current, {
         width: '100%',
         height: '100%',
-        manager: 'continuous',
-        flow: 'paginated',
-        spread: 'auto',
+        // scrolled-doc + manager default mantiene una sola sección cargada:
+        // el usuario puede hacer scroll dentro del capítulo, nunca al siguiente.
+        manager: viewMode === 'continuous' ? 'default' : 'continuous',
+        flow: viewMode === 'continuous' ? 'scrolled-doc' : 'paginated',
+        spread: viewMode === 'continuous' ? 'none' : 'auto',
         allowScriptedContent: false,
       });
       renditionRef.current = rendition;
+
+      // Preparar los identificadores estables antes de que la sección llegue al
+      // iframe. Las anotaciones de EPUB.js se inyectan antes del evento
+      // `rendered`; sin estos IDs, un CFI creado por el lector podría resolverse
+      // como null al volver al capítulo y marks-pane fallaría en getClientRects.
+      (book as any).spine?.hooks?.content?.register((sectionDocument: Document) => {
+        extractParagraphs(sectionDocument);
+      });
 
       // Registrar temas
       Object.entries(THEME_CSS).forEach(([name, styles]) => {
@@ -178,11 +205,17 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           }
 
           ::highlight(tts-hover) {
-            background-color: rgba(212, 221, 218, 0.4);
-            border-bottom: 1px dashed rgba(212, 221, 218, 0.8);
+            background-color: transparent;
+            color: inherit;
+            text-decoration-line: underline;
+            text-decoration-color: rgba(141, 150, 146, 0.42);
+            text-decoration-style: solid;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 3px;
           }
         `;
         (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
+        applyLinkColor(iframeDocument, activeColorRef.current);
       });
 
       // Puentear eventos de teclado desde el iframe hacia la ventana principal
@@ -209,6 +242,19 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           if (e.cancelable) e.preventDefault();
           rendition.next();
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          if (viewMode === 'continuous') {
+            if (e.cancelable) e.preventDefault();
+            const scroller = containerRef.current?.querySelector<HTMLElement>('.epub-container');
+            if (scroller) {
+              const direction = e.key === 'ArrowUp' ? -1 : 1;
+              scroller.scrollBy({
+                top: direction * Math.max(48, scroller.clientHeight * 0.1),
+                behavior: 'smooth',
+              });
+            }
+            return;
+          }
+
           const location = rendition.location;
           if (location && bookRef.current) {
             const currentHref = location.start.href;
@@ -246,7 +292,22 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         const selection = contents.window.getSelection();
         const selectedText = selection?.toString().trim() ?? '';
         if (selectedText.length > 0) {
-          onHighlightRequest(cfiRange, selectedText);
+          let position: SelectionPosition | undefined;
+
+          try {
+            const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+            const selectionRect = range?.getBoundingClientRect();
+            const iframeRect = contents.window.frameElement?.getBoundingClientRect();
+
+            if (selectionRect && iframeRect) {
+              position = {
+                x: iframeRect.left + selectionRect.left + selectionRect.width / 2,
+                y: iframeRect.top + selectionRect.bottom,
+              };
+            }
+          } catch { /* mantener la posición de respaldo del popup */ }
+
+          onHighlightRequest(cfiRange, selectedText, position);
         }
       });
 
@@ -274,6 +335,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         // usar el valor actualizado, no un snapshot estancado del momento del evento.
         setTimeout(() => {
           const currentHighlights = highlightsRef.current; // leer AQUÍ, no fuera
+          const sectionIndex = section.index as number;
+          const sectionHighlights = currentHighlights.filter(
+            (highlight) => getCfiSectionIndex(highlight.cfiRange) === sectionIndex
+          );
           const colorMap: Record<string, string> = {
             yellow: '#ffc701',
             green: '#c7e372',
@@ -282,13 +347,16 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           };
 
           // Limpiar todas las anotaciones previas de esta sección
-          currentHighlights.forEach((hl) => {
+          sectionHighlights.forEach((hl) => {
             renderedHighlightsRef.current.delete(hl.id);
             try { rendition.annotations.remove(hl.cfiRange, 'highlight'); } catch (_) {}
           });
 
-          // Re-añadir solo los highlights que siguen existiendo
-          currentHighlights.forEach((hl) => {
+          // Re-añadir solo los highlights de esta sección cuyo CFI todavía
+          // puede convertirse en un Range. marks-pane no tolera Range nulos.
+          sectionHighlights.forEach((hl) => {
+            if (!canRenderCfiRange(hl.cfiRange, iframeDocument)) return;
+
             try {
               const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
               rendition.annotations.highlight(
@@ -370,6 +438,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         const docAny = iframeDocument as Document & { 
           _ttsClickHandler?: EventListener;
           _ttsMoveHandler?: EventListener;
+          _ttsLeaveHandler?: EventListener;
           _hlMoveHandler?: EventListener;
           _hlOutHandler?: EventListener;
         };
@@ -377,6 +446,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         if (docAny._ttsClickHandler) {
           iframeDocument.removeEventListener('click', docAny._ttsClickHandler);
           iframeDocument.removeEventListener('mousemove', docAny._ttsMoveHandler as EventListener);
+          iframeDocument.removeEventListener('mouseleave', docAny._ttsLeaveHandler as EventListener);
           iframeDocument.removeEventListener('mouseover', docAny._hlMoveHandler as EventListener);
           iframeDocument.removeEventListener('mouseout', docAny._hlOutHandler as EventListener);
         }
@@ -439,18 +509,23 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
         docAny._ttsClickHandler = handleParagraphClick as EventListener;
         docAny._ttsMoveHandler = handleMouseMove as EventListener;
+        docAny._ttsLeaveHandler = (() => {
+          if (hoverTimeout) clearTimeout(hoverTimeout);
+          clearHoverSentence(iframeDocument);
+        }) as EventListener;
         docAny._hlMoveHandler = handleHighlightMouseOver as EventListener;
         docAny._hlOutHandler = handleHighlightMouseOut as EventListener;
 
         iframeDocument.addEventListener('click', handleParagraphClick as EventListener);
         iframeDocument.addEventListener('mousemove', handleMouseMove as EventListener);
+        iframeDocument.addEventListener('mouseleave', docAny._ttsLeaveHandler);
         iframeDocument.addEventListener('mouseover', handleHighlightMouseOver as EventListener);
         iframeDocument.addEventListener('mouseout', handleHighlightMouseOut as EventListener);
       });
 
       // Evento de reubicación: guardar progreso + sincronizar TTS
       rendition.on('relocated', (location: any) => {
-        const { status, stop, setActiveParagraphIndex, setChapterTitle } = useTtsStore.getState();
+        const { status, stop, setActiveParagraphIndex, setActiveSentenceIndex, setChapterTitle } = useTtsStore.getState();
 
         const currentHref = location.start.href;
         const cleanHref = getCleanHref(currentHref);
@@ -523,6 +598,17 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
               if (p) {
                 const index = parseInt(p.getAttribute('data-paragraph-index') || '0', 10);
                 setActiveParagraphIndex(index);
+
+                // Si la página comienza a mitad de un párrafo, iniciar en la
+                // primera frase visible y no al comienzo (ubicado en la página
+                // anterior en una vista de una sola columna).
+                const paragraphText = newParagraphs?.[index] || p.textContent?.trim() || '';
+                const sentenceIndex = getSentenceIndexAtRange(
+                  p as HTMLElement,
+                  range,
+                  splitIntoSentences(paragraphText)
+                );
+                setActiveSentenceIndex(sentenceIndex);
               }
             }
           } catch (e) {
@@ -532,7 +618,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       });
 
       // Mostrar libro: restaurar posición guardada o ir al inicio
-      const startCfi = initialCfi ?? null;
+      const startCfi = lastCfiRef.current ?? initialCfi ?? null;
       await (startCfi ? rendition.display(startCfi) : rendition.display());
       if (isCancelled) return;
 
@@ -623,7 +709,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file]);
+  }, [file, viewMode]);
 
   // -------------------------------------------------------
   // Actualizar tema al cambiar
@@ -631,6 +717,19 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   useEffect(() => {
     renditionRef.current?.themes.select(theme);
   }, [theme]);
+
+  // Los documentos EPUB viven en iframes y no heredan las variables CSS del
+  // shell de la aplicación, por lo que el color de enlaces se sincroniza allí.
+  useEffect(() => {
+    activeColorRef.current = activeColor;
+
+    try {
+      const contents = renditionRef.current?.getContents?.() as unknown as RenditionContents[] | undefined;
+      contents?.forEach(({ document }) => {
+        if (document) applyLinkColor(document, activeColor);
+      });
+    } catch { /* la sección todavía puede no estar renderizada */ }
+  }, [activeColor]);
 
   // -------------------------------------------------------
   // Actualizar tipografía al cambiar
@@ -648,7 +747,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   useEffect(() => {
     // Helper: obtiene el documento correspondiente a la sección visible. En el
     // manager continuo getContents()[0] puede ser una sección precargada.
-    const getActiveIframeDoc = (): Document | null => {
+    const getActiveContents = (): RenditionContents | null => {
       const rendition = renditionRef.current;
       const activeSectionIndex = rendition?.location?.start?.index;
 
@@ -661,23 +760,39 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
           const activeContents = typeof activeSectionIndex === 'number'
             ? contents.find((item) => item?.sectionIndex === activeSectionIndex)
             : null;
-          const doc = activeContents?.document ?? contents[0]?.document;
-          if (doc) return doc;
+          const result = activeContents ?? contents[0];
+          if (result?.document) return result;
         }
       } catch (_) { /* ignorar */ }
 
       // Estrategia 2: querySelector sobre el contenedor React
       const iframe = containerRef.current?.querySelector('iframe');
-      return iframe?.contentDocument ?? null;
+      return iframe?.contentDocument ? { document: iframe.contentDocument } : null;
+    };
+
+    const getActiveIframeDoc = (): Document | null => getActiveContents()?.document ?? null;
+
+    const isCfiVisible = (targetCfi: string): boolean => {
+      const rendition = renditionRef.current;
+      const location = rendition?.location;
+      if (!rendition || !location?.start?.cfi || !location?.end?.cfi) return false;
+
+      try {
+        return rendition.epubcfi.compare(targetCfi, location.start.cfi) >= 0
+          && rendition.epubcfi.compare(targetCfi, location.end.cfi) <= 0;
+      } catch (_) {
+        return false;
+      }
     };
 
     // Función que aplica el highlight con el estado actual del store
     const applyTtsHighlight = () => {
       const state = useTtsStore.getState();
       const { status, activeParagraphIndex: pIdx, activeSentenceIndex: sIdx, paragraphs } = state;
-      const isActive = status === 'playing' || status === 'loading';
+      const isActive = status === 'playing' || status === 'loading' || status === 'paused';
 
-      const doc = getActiveIframeDoc();
+      const activeContents = getActiveContents();
+      const doc = activeContents?.document;
       if (!doc) return;
 
       if (!isActive) {
@@ -703,25 +818,34 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
       highlightActiveParagraph(doc, pIdx, sentenceText);
 
-      // En un XHTML paginado, el iframe contiene todas las columnas y el
-      // viewport real pertenece al manager de epub.js. Navegar al ancla del
-      // bloque evita intentar inferir la página con coordenadas del iframe.
+      // Generar el CFI de la frase exacta evita volver al inicio del párrafo
+      // cuando éste cruza el límite entre dos páginas/columnas.
       const current = doc.querySelector<HTMLElement>(
         `[data-paragraph-index="${pIdx}"]`
       );
-      const targetId = current?.dataset.ttsTargetId || current?.id;
-      const href = renditionRef.current?.location?.start?.href;
-      const target = href && targetId ? `${href.split('#')[0]}#${targetId}` : null;
+      const sentenceRange = current ? findSentenceRange(current, sentenceText) : null;
+      let target: string | null = null;
+
+      if (sentenceRange && activeContents?.cfiFromRange) {
+        const sentenceStart = sentenceRange.cloneRange();
+        sentenceStart.collapse(true);
+        target = activeContents.cfiFromRange(sentenceStart);
+      }
 
       if (target && target !== lastTtsTargetRef.current) {
         lastTtsTargetRef.current = target;
+
+        // Al iniciar TTS, no reubicar una frase que ya está en el viewport. Ésta
+        // era la causa del salto hacia atrás en vistas de una sola columna.
+        if (isCfiVisible(target)) return;
+
         const navigationId = ++ttsNavigationIdRef.current;
 
         void renditionRef.current?.display(target).then(() => {
           if (navigationId !== ttsNavigationIdRef.current) return;
 
           const latest = useTtsStore.getState();
-          if (latest.status !== 'playing' && latest.status !== 'loading') return;
+          if (latest.status !== 'playing' && latest.status !== 'loading' && latest.status !== 'paused') return;
 
           const activeDoc = getActiveIframeDoc();
           if (!activeDoc) return;
@@ -774,6 +898,13 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   useEffect(() => {
     if (!renditionRef.current) return;
     const rendition = renditionRef.current;
+    const loadedContents = (() => {
+      try {
+        return rendition.getContents() as unknown as RenditionContents[];
+      } catch {
+        return [];
+      }
+    })();
 
     const colorMap: Record<string, string> = {
       yellow: '#ffc701',
@@ -804,6 +935,14 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     // Añadir los highlights nuevos
     highlights.forEach((hl) => {
       if (!renderedHighlightsRef.current.has(hl.id)) {
+        const sectionIndex = getCfiSectionIndex(hl.cfiRange);
+        const contents = loadedContents.find((item) => item.sectionIndex === sectionIndex);
+
+        // Si la sección aún no está cargada, el evento `rendered` la añadirá
+        // cuando corresponda. Así evitamos que EPUB.js inyecte anticipadamente
+        // un resaltado con un Range nulo.
+        if (!contents?.document || !canRenderCfiRange(hl.cfiRange, contents.document)) return;
+
         try {
           const highlightColor = colorMap[hl.color] || hl.color || '#ffc701';
           rendition.annotations.highlight(
@@ -876,7 +1015,17 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
     getCurrentCfi: () => {
       const location = renditionRef.current?.location as any;
       return location?.start?.cfi;
-    }
+    },
+    clearSelection: () => {
+      try {
+        const contents = renditionRef.current?.getContents?.() as unknown as RenditionContents[] | undefined;
+        contents?.forEach((item) => item.window?.getSelection()?.removeAllRanges());
+      } catch { /* la vista puede estar cambiando de capítulo */ }
+
+      containerRef.current?.querySelectorAll('iframe').forEach((iframe) => {
+        iframe.contentWindow?.getSelection()?.removeAllRanges();
+      });
+    },
   }));
 
   return (
@@ -889,23 +1038,23 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         <div ref={containerRef} className="epub-canvas w-full h-full" />
       </div>
 
-      {/* Controles de navegación de páginas */}
+      {/* En modo continuo estos controles cambian de capítulo. */}
       <div className="epub-nav-controls absolute inset-y-0 left-0 right-0 flex items-center justify-between pointer-events-none px-2">
         <button
           id="epub-prev-page"
           onClick={prevPage}
-          aria-label="Página anterior"
+          aria-label={viewMode === 'continuous' ? 'Capítulo anterior' : 'Página anterior'}
           className="epub-nav-btn pointer-events-auto"
-          title="Página anterior"
+          title={viewMode === 'continuous' ? 'Capítulo anterior' : 'Página anterior'}
         >
           <ChevronLeft size={26} aria-hidden="true" />
         </button>
         <button
           id="epub-next-page"
           onClick={nextPage}
-          aria-label="Página siguiente"
+          aria-label={viewMode === 'continuous' ? 'Capítulo siguiente' : 'Página siguiente'}
           className="epub-nav-btn pointer-events-auto"
-          title="Página siguiente"
+          title={viewMode === 'continuous' ? 'Capítulo siguiente' : 'Página siguiente'}
         >
           <ChevronRight size={26} aria-hidden="true" />
         </button>
@@ -928,4 +1077,72 @@ function applyTypography(
   rendition.themes.override('font-family', FONT_MAP[fontFamily] || 'sans-serif');
   rendition.themes.override('font-size', `${fontSize}px`);
   rendition.themes.override('line-height', String(lineHeight));
+}
+
+function applyLinkColor(iframeDocument: Document, activeColor: string): void {
+  const styleId = 'reader-active-color-styles';
+  let style = iframeDocument.getElementById(styleId) as HTMLStyleElement | null;
+
+  if (!style) {
+    style = iframeDocument.createElement('style');
+    style.id = styleId;
+    (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
+  }
+
+  style.textContent = `
+    a, a:link, a:visited {
+      color: ${activeColor} !important;
+    }
+  `;
+
+  // El estilo inline con prioridad también cubre EPUBs que traen selectores de
+  // enlaces más específicos que la hoja inyectada por el lector.
+  iframeDocument.querySelectorAll<HTMLElement>('a').forEach((link) => {
+    link.style.setProperty('color', activeColor, 'important');
+  });
+}
+
+function getSentenceIndexAtRange(
+  paragraph: HTMLElement,
+  locationRange: Range,
+  sentences: string[]
+): number {
+  if (sentences.length === 0) return 0;
+
+  try {
+    const prefix = paragraph.ownerDocument.createRange();
+    prefix.selectNodeContents(paragraph);
+    prefix.setEnd(locationRange.startContainer, locationRange.startOffset);
+    const characterOffset = prefix.toString().length;
+    const paragraphText = paragraph.textContent || '';
+    let searchFrom = 0;
+
+    for (let index = 0; index < sentences.length; index++) {
+      const sentenceStart = paragraphText.indexOf(sentences[index], searchFrom);
+      if (sentenceStart === -1) continue;
+
+      const sentenceEnd = sentenceStart + sentences[index].length;
+      if (characterOffset <= sentenceEnd) return index;
+      searchFrom = sentenceEnd;
+    }
+  } catch { /* el CFI puede apuntar fuera del párrafo en EPUBs no estándar */ }
+
+  return 0;
+}
+
+function getCfiSectionIndex(cfiRange: string): number | null {
+  try {
+    return new EpubCFI(cfiRange).spinePos;
+  } catch {
+    return null;
+  }
+}
+
+function canRenderCfiRange(cfiRange: string, iframeDocument: Document): boolean {
+  try {
+    const range = new EpubCFI(cfiRange).toRange(iframeDocument);
+    return Boolean(range?.startContainer?.isConnected);
+  } catch {
+    return false;
+  }
 }
