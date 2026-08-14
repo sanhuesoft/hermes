@@ -78,6 +78,15 @@ export function extractParagraphs(iframeDocument: Document): string[] {
     const text = el.textContent?.trim() ?? '';
     if (text.length > 0) {
       el.setAttribute('data-paragraph-index', String(actualIndex));
+
+      // epub.js puede navegar de forma fiable a un fragmento, incluso cuando el
+      // documento usa varias columnas. No reemplazamos IDs editoriales porque
+      // podrían ser destinos de enlaces internos del libro.
+      if (!el.id) {
+        el.id = `tts-paragraph-${actualIndex}`;
+      }
+      el.setAttribute('data-tts-target-id', el.id);
+
       paragraphs.push(text);
       actualIndex++;
     }

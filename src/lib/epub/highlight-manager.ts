@@ -126,10 +126,13 @@ export function highlightActiveParagraph(
   index: number,
   sentenceText?: string
 ): DOMRect | null {
-  // 1. Limpiar todos los resaltados anteriores (fondo heredado y Custom Highlights)
+  // 1. Limpiar todos los indicadores anteriores (fallback y Custom Highlights)
   const prevs = iframeDocument.querySelectorAll('[data-paragraph-index]');
   prevs.forEach((el) => {
-    (el as HTMLElement).style.backgroundColor = '';
+    const paragraph = el as HTMLElement;
+    paragraph.style.backgroundColor = '';
+    paragraph.style.textDecoration = '';
+    paragraph.style.textUnderlineOffset = '';
   });
 
   const iframeWindow = iframeDocument.defaultView as any;
@@ -143,10 +146,11 @@ export function highlightActiveParagraph(
   );
   if (!current) return null;
 
-  // 3. Intentar aplicar Custom Highlight a la frase exacta soportando HTML anidado
+  // 3. Resaltar el Range exacto. Al estar ligado al texto, el highlight se
+  // mantiene correcto aunque epub.js desplace el documento entre columnas.
   if (sentenceText && sentenceText.trim() !== '' && iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
     const range = findSentenceRange(current, sentenceText);
-    
+
     if (range) {
       const highlight = new iframeWindow.Highlight(range);
       iframeWindow.CSS.highlights.set('tts-active', highlight);
@@ -154,8 +158,9 @@ export function highlightActiveParagraph(
     }
   }
 
-  // 4. Fallback: Resaltar todo el párrafo con gris suave si no hay API o no se encontró la frase
-  current.style.backgroundColor = 'rgba(212, 221, 218, 0.4)';
+  // 4. Fallback para navegadores sin CSS Custom Highlight.
+  current.style.textDecoration = 'underline solid #8d9692 2px';
+  current.style.textUnderlineOffset = '3px';
   return current.getBoundingClientRect();
 }
 

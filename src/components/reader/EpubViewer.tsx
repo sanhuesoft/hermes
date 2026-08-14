@@ -9,6 +9,11 @@ import { extractParagraphs, splitIntoSentences } from '@/lib/epub/parser';
 import { highlightActiveParagraph, getSentenceIndexFromPoint, highlightHoverSentence, clearHoverSentence } from '@/lib/epub/highlight-manager';
 import type { EpubMeta, Chapter, Highlight } from '@/types/epub';
 
+type RenditionContents = {
+  document?: Document;
+  sectionIndex?: number;
+};
+
 export interface EpubViewerHandle {
   goToChapter: (href: string) => void;
   nextPage: () => void;
@@ -69,7 +74,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   const containerRef = useRef<HTMLDivElement>(null);
   const bookRef = useRef<Book | null>(null);
   const renditionRef = useRef<Rendition | null>(null);
-  const prevParagraphIndexRef = useRef<number>(0);
+  const lastTtsTargetRef = useRef<string | null>(null);
+  const ttsNavigationIdRef = useRef(0);
   // Ref para el último CFI, para guardar progreso sin re-renders
   const lastCfiRef = useRef<string | null>(null);
   // Ref para el debounce de progreso
@@ -143,6 +149,42 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       // Tipografía inicial
       applyTypography(rendition, fontFamily, fontSize, lineHeight);
 
+      // Inyectar estilos de cursor + hover para párrafos clicables y fuentes.
+      rendition.hooks.content.register((contents: any) => {
+        const iframeDocument = contents.document;
+
+        const style = iframeDocument.createElement('style');
+        style.id = 'tts-paragraph-click-styles';
+        style.textContent = `
+          @import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap');
+          @import url('https://fonts.cdnfonts.com/css/opendyslexic');
+
+          [data-paragraph-index] {
+            cursor: pointer;
+            border-radius: 3px;
+            transition: background-color 0.15s;
+            orphans: 3;
+            widows: 3;
+          }
+
+          ::highlight(tts-active) {
+            background-color: transparent;
+            color: inherit;
+            text-decoration-line: underline;
+            text-decoration-color: #8d9692;
+            text-decoration-style: solid;
+            text-decoration-thickness: 2px;
+            text-underline-offset: 3px;
+          }
+
+          ::highlight(tts-hover) {
+            background-color: rgba(212, 221, 218, 0.4);
+            border-bottom: 1px dashed rgba(212, 221, 218, 0.8);
+          }
+        `;
+        (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
+      });
+
       // Puentear eventos de teclado desde el iframe hacia la ventana principal
       const handleKey = (e: KeyboardEvent) => {
         // Ignorar si el usuario está escribiendo en algún input
@@ -155,16 +197,16 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
         // Tecla Espacio: alternar TTS
         if (e.key === ' ') {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           window.dispatchEvent(new CustomEvent('toggle-tts'));
           return;
         }
 
         if (e.key === 'ArrowLeft') {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           rendition.prev();
         } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
+          if (e.cancelable) e.preventDefault();
           rendition.next();
         } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
           const location = rendition.location;
@@ -180,7 +222,7 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
             if (currentIndex !== -1) {
               const targetIndex = e.key === 'ArrowUp' ? currentIndex - 1 : currentIndex + 1;
               if (targetIndex >= 0 && targetIndex < items.length) {
-                e.preventDefault();
+                if (e.cancelable) e.preventDefault();
                 rendition.display(items[targetIndex].href);
               }
             }
@@ -272,41 +314,6 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
             useTtsStore.getState().setParagraphs(freshParagraphs);
           }
         }, 0);
-
-        // Inyectar estilos de cursor + hover para párrafos clicables y FUENTES
-        const styleId = 'tts-paragraph-click-styles';
-        if (!iframeDocument.getElementById(styleId)) {
-          const style = iframeDocument.createElement('style');
-          style.id = styleId;
-          style.textContent = `
-            @import url('https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400..800;1,400..800&family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&family=Merriweather:ital,wght@0,300;0,400;0,700;0,900;1,300;1,400;1,700;1,900&display=swap');
-            @import url('https://fonts.cdnfonts.com/css/opendyslexic');
-
-            [data-paragraph-index] {
-              cursor: pointer;
-              border-radius: 3px;
-              transition: background-color 0.15s;
-              orphans: 3;
-              widows: 3;
-            }
-
-            ::highlight(tts-active) {
-              background-color: #d4ddda;
-              color: inherit;
-            }
-            
-            ::highlight(tts-hover) {
-              background-color: rgba(212, 221, 218, 0.4);
-              border-bottom: 1px dashed rgba(212, 221, 218, 0.8);
-            }
-
-            ::highlight(tts-active) {
-              background-color: #d4ddda;
-              color: inherit;
-            }
-          `;
-          (iframeDocument.head || iframeDocument.documentElement).appendChild(style);
-        }
 
         // Listener de click sobre párrafos para saltar TTS a la frase exacta
         const handleParagraphClick = (e: MouseEvent) => {
@@ -639,28 +646,27 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
   // batching de React retrase el highlight entre frases.
   // -------------------------------------------------------
   useEffect(() => {
-    // Helper: obtiene el documento del iframe activo
+    // Helper: obtiene el documento correspondiente a la sección visible. En el
+    // manager continuo getContents()[0] puede ser una sección precargada.
     const getActiveIframeDoc = (): Document | null => {
-      // Estrategia 1: rendition.getContents() — API interna de epubjs
+      const rendition = renditionRef.current;
+      const activeSectionIndex = rendition?.location?.start?.index;
+
+      // Estrategia 1: rendition.getContents()
       try {
-        const contents = (renditionRef.current as any)?.getContents?.();
+        // Las declaraciones de epub.js indican un solo Contents, aunque el
+        // runtime de Rendition devuelve un array para las vistas cargadas.
+        const contents = rendition?.getContents?.() as unknown as RenditionContents[] | undefined;
         if (contents && contents.length > 0) {
-          const doc = contents[0]?.document;
+          const activeContents = typeof activeSectionIndex === 'number'
+            ? contents.find((item) => item?.sectionIndex === activeSectionIndex)
+            : null;
+          const doc = activeContents?.document ?? contents[0]?.document;
           if (doc) return doc;
         }
       } catch (_) { /* ignorar */ }
 
-      // Estrategia 2: acceder al manager interno de epubjs
-      try {
-        const manager = (renditionRef.current as any)?.manager;
-        const views = manager?.views?.map ? manager.views.map((v: any) => v) : [];
-        for (const view of views) {
-          const doc = view?.document || view?.iframe?.contentDocument;
-          if (doc) return doc;
-        }
-      } catch (_) { /* ignorar */ }
-
-      // Estrategia 3: querySelector sobre el contenedor React
+      // Estrategia 2: querySelector sobre el contenedor React
       const iframe = containerRef.current?.querySelector('iframe');
       return iframe?.contentDocument ?? null;
     };
@@ -676,13 +682,18 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
 
       if (!isActive) {
         // Limpiar todos los highlights TTS
+        lastTtsTargetRef.current = null;
+        ttsNavigationIdRef.current++;
         const iframeWindow = doc.defaultView as any;
         if (iframeWindow && 'CSS' in iframeWindow && 'highlights' in iframeWindow.CSS) {
           iframeWindow.CSS.highlights.delete('tts-active');
         }
         doc.querySelectorAll<HTMLElement>('[data-paragraph-index]').forEach((el) => {
           el.style.backgroundColor = '';
+          el.style.textDecoration = '';
+          el.style.textUnderlineOffset = '';
         });
+        doc.querySelectorAll('.tts-overlay-highlight').forEach((el) => el.remove());
         return;
       }
 
@@ -690,20 +701,42 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
       const textChunks = splitIntoSentences(currentText);
       const sentenceText = textChunks[sIdx] || currentText;
 
-      const rect = highlightActiveParagraph(doc, pIdx, sentenceText);
+      highlightActiveParagraph(doc, pIdx, sentenceText);
 
-      // Auto-paginación
-      if (rect && status === 'playing') {
-        const iframeWindow = doc.defaultView as any;
-        const viewportWidth = iframeWindow?.innerWidth ?? 0;
-        if (rect.left >= viewportWidth) {
-          renditionRef.current?.next();
-        } else if (rect.right <= 0) {
-          renditionRef.current?.prev();
-        }
+      // En un XHTML paginado, el iframe contiene todas las columnas y el
+      // viewport real pertenece al manager de epub.js. Navegar al ancla del
+      // bloque evita intentar inferir la página con coordenadas del iframe.
+      const current = doc.querySelector<HTMLElement>(
+        `[data-paragraph-index="${pIdx}"]`
+      );
+      const targetId = current?.dataset.ttsTargetId || current?.id;
+      const href = renditionRef.current?.location?.start?.href;
+      const target = href && targetId ? `${href.split('#')[0]}#${targetId}` : null;
+
+      if (target && target !== lastTtsTargetRef.current) {
+        lastTtsTargetRef.current = target;
+        const navigationId = ++ttsNavigationIdRef.current;
+
+        void renditionRef.current?.display(target).then(() => {
+          if (navigationId !== ttsNavigationIdRef.current) return;
+
+          const latest = useTtsStore.getState();
+          if (latest.status !== 'playing' && latest.status !== 'loading') return;
+
+          const activeDoc = getActiveIframeDoc();
+          if (!activeDoc) return;
+
+          const latestText = latest.paragraphs[latest.activeParagraphIndex] || '';
+          const latestSentences = splitIntoSentences(latestText);
+          highlightActiveParagraph(
+            activeDoc,
+            latest.activeParagraphIndex,
+            latestSentences[latest.activeSentenceIndex] || latestText
+          );
+        }).catch((error) => {
+          console.warn('[EpubViewer] No se pudo seguir el párrafo TTS:', error);
+        });
       }
-
-      prevParagraphIndexRef.current = pIdx;
     };
 
     // Suscribir directamente al store para cambios en tiempo real
@@ -725,7 +758,10 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
         }
         doc.querySelectorAll<HTMLElement>('[data-paragraph-index]').forEach((el) => {
           el.style.backgroundColor = '';
+          el.style.textDecoration = '';
+          el.style.textUnderlineOffset = '';
         });
+        doc.querySelectorAll('.tts-overlay-highlight').forEach((el) => el.remove());
       }
     };
   // Solo depende del ciclo de vida del componente — el store es externo
