@@ -286,6 +286,8 @@ const EpubViewer = forwardRef<EpubViewerHandle, EpubViewerProps>(function EpubVi
               cursor: pointer;
               border-radius: 3px;
               transition: background-color 0.15s;
+              orphans: 3;
+              widows: 3;
             }
 
             ::highlight(tts-active) {

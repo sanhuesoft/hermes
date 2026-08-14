@@ -25,7 +25,7 @@ import type { EpubMeta, Chapter, Highlight, HighlightColor, LibraryBook, Bookmar
 import type { EpubViewerHandle } from '@/components/reader/EpubViewer';
 import VoiceSelector from '@/components/tts/VoiceSelector';
 import TtsControls from '@/components/tts/TtsControls';
-import ZenOverlay from '@/components/reader/ZenOverlay';
+
 import HighlightMenu from '@/components/reader/HighlightMenu';
 import ReaderSettingsModal from '@/components/settings/ReaderSettingsModal';
 import LibraryView from '@/components/library/LibraryView';
@@ -255,7 +255,7 @@ export default function Home() {
   // -------------------------------------------------------
 
   return (
-    <ZenOverlay>
+    <>
       <div className="reader-layout" data-theme={theme}>
         {/* Header */}
         <header className={`reader-header ${isZenMode ? 'reader-header--hidden' : ''}`}>
@@ -581,6 +581,6 @@ export default function Home() {
           onClose={() => setSettingsOpen(false)}
         />
       </div>
-    </ZenOverlay>
+    </>
   );
 }
