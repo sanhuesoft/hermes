@@ -5,8 +5,8 @@ FROM base AS deps
 RUN apk add --no-cache libc6-compat python3 make g++
 WORKDIR /app
 
-# Enable pnpm
-RUN npm install -g pnpm@latest
+# Enable pnpm (matching packageManager version)
+RUN npm install -g pnpm@9.15.5
 
 COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* ./
 RUN pnpm i --frozen-lockfile
@@ -14,7 +14,7 @@ RUN pnpm i --frozen-lockfile
 # Rebuild the source code only when needed
 FROM base AS builder
 WORKDIR /app
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@9.15.5
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
