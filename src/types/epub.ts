@@ -23,9 +23,10 @@ export interface LibraryBook {
   id: string;
   folderId: string | null; // null = sin carpeta
   fileName: string;        // nombre original del archivo .epub
-  fileData: ArrayBuffer;   // contenido raw del EPUB
-  coverData: ArrayBuffer | null; // bytes de la imagen de portada (persiste en IDB)
-  coverMimeType?: string | null; // MIME necesario para reconstruir correctamente el Blob URL
+  fileData?: ArrayBuffer;   // contenido raw del EPUB (cargado bajo demanda en el lector)
+  coverData?: ArrayBuffer | null; // bytes de la imagen de portada (opcional)
+  coverMimeType?: string | null;
+  coverUrl?: string | null; // URL del endpoint /api/books/[id]/cover
   meta: EpubMeta;
   addedAt: string;
   lastOpenedAt: string | null;

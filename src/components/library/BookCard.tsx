@@ -71,16 +71,18 @@ function bufferToObjectURL(
 export default function BookCard({ book, onOpen }: BookCardProps) {
   const { folders, moveBook, removeBook, updateCover } = useLibraryStore();
 
-  // ---------- Cover URL (regenerada desde coverData en cada montaje) ----------
-  const coverUrl = useMemo(
-    () => bufferToObjectURL(book.coverData, book.coverMimeType),
-    [book.coverData, book.coverMimeType]
-  );
+  // ---------- Cover URL ----------
+  const coverUrl = useMemo(() => {
+    if (book.coverUrl) return book.coverUrl;
+    return bufferToObjectURL(book.coverData, book.coverMimeType);
+  }, [book.coverUrl, book.coverData, book.coverMimeType]);
 
   useEffect(() => {
     return () => {
-      // Limpiar la blob URL al desmontar para evitar memory leaks
-      if (coverUrl) URL.revokeObjectURL(coverUrl);
+      // Limpiar la blob URL al desmontar solo si es un blob: local
+      if (coverUrl && coverUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(coverUrl);
+      }
     };
   }, [coverUrl]);
 

@@ -2,15 +2,6 @@
 
 import { create } from 'zustand';
 import type { LibraryBook, LibraryFolder, EpubMeta, Highlight, Bookmark } from '@/types/epub';
-import {
-  getBooks,
-  getBook,
-  saveBook,
-  deleteBook as dbDeleteBook,
-  getFolders,
-  saveFolder,
-  deleteFolder as dbDeleteFolder,
-} from '@/lib/storage/library-db';
 import { createBaseCitekey, createUniqueCitekey } from '@/lib/storage/citekey';
 
 // ----------------------------------------------------------------
@@ -80,15 +71,21 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   loadLibrary: async () => {
     set({ isLoading: true });
     try {
-      const [books, folders] = await Promise.all([getBooks(), getFolders()]);
-      // Ordenar por fecha de adición descendente
-      books.sort(
-        (a, b) => new Date(b.addedAt).getTime() - new Date(a.addedAt).getTime()
-      );
-      folders.sort(
-        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-      );
+      const [booksRes, foldersRes] = await Promise.all([
+        fetch('/api/books'),
+        fetch('/api/folders'),
+      ]);
+
+      if (!booksRes.ok || !foldersRes.ok) {
+        throw new Error('Error al conectar con la base de datos del servidor');
+      }
+
+      const books: LibraryBook[] = await booksRes.json();
+      const folders: LibraryFolder[] = await foldersRes.json();
+
       set({ books, folders });
+    } catch (err) {
+      console.error('Error al cargar biblioteca:', err);
     } finally {
       set({ isLoading: false });
     }
@@ -105,98 +102,192 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     }
     const finalId = createUniqueCitekey(baseCitekey, get().books.map((book) => book.id));
 
-    const book: LibraryBook = {
-      id: finalId,
-      folderId: null,
-      fileName,
-      fileData,
-      coverData,
-      coverMimeType,
-      meta,
-      addedAt: new Date().toISOString(),
-      lastOpenedAt: null,
-      lastCfi: null,
-      highlights: [],
-      bookmarks: [],
-    };
-    await saveBook(book);
+    const formData = new FormData();
+    formData.append('id', finalId);
+    formData.append(
+      'file',
+      new Blob([fileData], { type: 'application/epub+zip' }),
+      fileName
+    );
+    formData.append('fileName', fileName);
+    formData.append('title', meta.title);
+    formData.append('author', meta.author);
+    formData.append('identifier', meta.identifier || finalId);
+    formData.append('language', meta.language || 'es');
+    if (meta.publisher) formData.append('publisher', meta.publisher);
+    if (meta.pubdate) formData.append('pubdate', meta.pubdate);
+
+    if (coverData && coverData.byteLength > 0) {
+      formData.append(
+        'cover',
+        new Blob([coverData], { type: coverMimeType || 'image/jpeg' }),
+        'cover.jpg'
+      );
+    }
+
+    const res = await fetch('/api/books', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Error al subir libro' }));
+      throw new Error(err.error || 'Error al guardar el libro en el servidor');
+    }
+
+    const created: LibraryBook = await res.json();
     set((state) => ({
-      books: [book, ...state.books],
+      books: [created, ...state.books],
     }));
-    return book;
+    return created;
   },
 
   openBook: async (id) => {
-    const book = await getBook(id);
-    if (!book) return undefined;
-    // Actualizar lastOpenedAt
-    const updated: LibraryBook = {
-      ...book,
-      lastOpenedAt: new Date().toISOString(),
-    };
-    await saveBook(updated);
-    set((state) => ({
-      books: state.books.map((b) => (b.id === id ? updated : b)),
-    }));
-    return updated;
+    try {
+      const [bookRes, fileRes] = await Promise.all([
+        fetch(`/api/books/${encodeURIComponent(id)}`),
+        fetch(`/api/books/${encodeURIComponent(id)}/file`),
+      ]);
+
+      if (!bookRes.ok || !fileRes.ok) return undefined;
+
+      const bookMeta: LibraryBook = await bookRes.json();
+      const fileData = await fileRes.arrayBuffer();
+      const now = new Date().toISOString();
+
+      // Actualizar timestamp en segundo plano
+      fetch(`/api/books/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastOpenedAt: now }),
+      }).catch(console.error);
+
+      const fullBook: LibraryBook = {
+        ...bookMeta,
+        fileData,
+        lastOpenedAt: now,
+      };
+
+      set((state) => ({
+        books: state.books.map((b) => (b.id === id ? { ...b, lastOpenedAt: now } : b)),
+      }));
+
+      return fullBook;
+    } catch (err) {
+      console.error('Error al abrir libro desde servidor:', err);
+      return undefined;
+    }
   },
 
   moveBook: async (bookId, folderId) => {
-    const book = get().books.find((b) => b.id === bookId);
-    if (!book) return;
-    const updated = { ...book, folderId };
-    await saveBook(updated);
-    set((state) => ({
-      books: state.books.map((b) => (b.id === bookId ? updated : b)),
-    }));
+    try {
+      await fetch(`/api/books/${encodeURIComponent(bookId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folderId }),
+      });
+
+      set((state) => ({
+        books: state.books.map((b) => (b.id === bookId ? { ...b, folderId } : b)),
+      }));
+    } catch (err) {
+      console.error('Error al mover libro:', err);
+    }
   },
 
   removeBook: async (id) => {
-    await dbDeleteBook(id);
-    set((state) => ({
-      books: state.books.filter((b) => b.id !== id),
-    }));
+    try {
+      await fetch(`/api/books/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+
+      set((state) => ({
+        books: state.books.filter((b) => b.id !== id),
+      }));
+    } catch (err) {
+      console.error('Error al eliminar libro:', err);
+    }
   },
 
   updateHighlights: async (bookId, highlights) => {
-    const book = get().books.find((b) => b.id === bookId);
-    if (!book) return;
-    const updated = { ...book, highlights };
-    await saveBook(updated);
-    set((state) => ({
-      books: state.books.map((b) => (b.id === bookId ? updated : b)),
-    }));
+    try {
+      fetch(`/api/books/${encodeURIComponent(bookId)}/highlights`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ highlights }),
+      }).catch(console.error);
+
+      set((state) => ({
+        books: state.books.map((b) => (b.id === bookId ? { ...b, highlights } : b)),
+      }));
+    } catch (err) {
+      console.error('Error al actualizar highlights:', err);
+    }
   },
 
   updateBookmarks: async (bookId, bookmarks) => {
-    const book = get().books.find((b) => b.id === bookId);
-    if (!book) return;
-    const updated = { ...book, bookmarks };
-    await saveBook(updated);
-    set((state) => ({
-      books: state.books.map((b) => (b.id === bookId ? updated : b)),
-    }));
+    try {
+      fetch(`/api/books/${encodeURIComponent(bookId)}/bookmarks`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookmarks }),
+      }).catch(console.error);
+
+      set((state) => ({
+        books: state.books.map((b) => (b.id === bookId ? { ...b, bookmarks } : b)),
+      }));
+    } catch (err) {
+      console.error('Error al actualizar marcadores:', err);
+    }
   },
 
   updateProgress: async (bookId, cfi) => {
-    const book = get().books.find((b) => b.id === bookId);
-    if (!book) return;
-    const updated = { ...book, lastCfi: cfi };
-    await saveBook(updated);
-    // Actualizar en memoria (sin re-render innecesario, solo IDB)
-    get().books.find((b) => b.id === bookId) && set((state) => ({
-      books: state.books.map((b) => (b.id === bookId ? updated : b)),
-    }));
+    try {
+      fetch(`/api/books/${encodeURIComponent(bookId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lastCfi: cfi }),
+      }).catch(console.error);
+
+      set((state) => ({
+        books: state.books.map((b) => (b.id === bookId ? { ...b, lastCfi: cfi } : b)),
+      }));
+    } catch (err) {
+      console.error('Error al actualizar progreso:', err);
+    }
   },
 
   updateCover: async (bookId, coverData, coverMimeType) => {
-    const book = get().books.find((b) => b.id === bookId);
-    if (!book) return;
-    const updated = { ...book, coverData, coverMimeType: coverMimeType || book.coverMimeType };
-    await saveBook(updated);
-    set((state) => ({
-      books: state.books.map((b) => (b.id === bookId ? updated : b)),
-    }));
+    try {
+      const formData = new FormData();
+      formData.append(
+        'cover',
+        new Blob([coverData], { type: coverMimeType || 'image/jpeg' }),
+        'cover.jpg'
+      );
+
+      const res = await fetch(`/api/books/${encodeURIComponent(bookId)}/cover`, {
+        method: 'PUT',
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        set((state) => ({
+          books: state.books.map((b) =>
+            b.id === bookId
+              ? {
+                  ...b,
+                  coverUrl: `${data.coverUrl}?t=${Date.now()}`,
+                  coverMimeType: data.coverMimeType,
+                }
+              : b
+          ),
+        }));
+      }
+    } catch (err) {
+      console.error('Error al actualizar portada:', err);
+    }
   },
 
   // ---------------------------------------------------------------
@@ -204,33 +295,38 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   // ---------------------------------------------------------------
 
   addFolder: async (name) => {
-    const folder: LibraryFolder = {
-      id: `folder_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      name: name.trim() || 'Nueva carpeta',
-      createdAt: new Date().toISOString(),
-    };
-    await saveFolder(folder);
+    const res = await fetch('/api/folders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+
+    if (!res.ok) {
+      throw new Error('Error al crear carpeta');
+    }
+
+    const folder: LibraryFolder = await res.json();
     set((state) => ({ folders: [...state.folders, folder] }));
     return folder;
   },
 
   renameFolder: async (id, name) => {
-    const folder = get().folders.find((f) => f.id === id);
-    if (!folder) return;
-    const updated = { ...folder, name: name.trim() || folder.name };
-    await saveFolder(updated);
+    await fetch(`/api/folders/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+
     set((state) => ({
-      folders: state.folders.map((f) => (f.id === id ? updated : f)),
+      folders: state.folders.map((f) => (f.id === id ? { ...f, name: name.trim() || f.name } : f)),
     }));
   },
 
   removeFolder: async (id) => {
-    // Mover libros de la carpeta a "sin carpeta"
-    const affected = get().books.filter((b) => b.folderId === id);
-    await Promise.all(
-      affected.map((b) => saveBook({ ...b, folderId: null }))
-    );
-    await dbDeleteFolder(id);
+    await fetch(`/api/folders/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+
     set((state) => ({
       folders: state.folders.filter((f) => f.id !== id),
       books: state.books.map((b) =>

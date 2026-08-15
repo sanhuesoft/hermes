@@ -1,0 +1,16 @@
+services:
+  ereader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ereader
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATA_DIR=/data
+      - PORT=3000
+    volumes:
+      # Monta la carpeta local ./data o un volumen persistente para guardar la BD SQLite, libros y portadas
+      - ./data:/data

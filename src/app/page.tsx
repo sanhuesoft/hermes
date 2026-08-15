@@ -113,7 +113,7 @@ export default function Home() {
       setActiveBookId(target.id);
       setHighlights(target.highlights ?? []);
       setBookmarks(target.bookmarks ?? []);
-      setFileBuffer(target.fileData);
+      setFileBuffer(target.fileData ?? null);
       setInitialCfi(target.lastCfi ?? null); // restaurar posición guardada
       setCurrentCfi(target.lastCfi ?? null);
       setBookMeta(null);
