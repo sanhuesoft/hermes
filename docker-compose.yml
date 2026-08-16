@@ -1,16 +1,14 @@
 services:
-  ereader:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: ereader
+  hermes:
+    image: ghcr.io/sanhuesoft/hermes:latest
+    container_name: hermes
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "5050:3000"
     environment:
       - NODE_ENV=production
       - DATA_DIR=/data
       - PORT=3000
     volumes:
-      # Monta la carpeta local ./data o un volumen persistente para guardar la BD SQLite, libros y portadas
+      # Carpeta persistente donde se guardan libros, portadas y la base de datos SQLite
       - ./data:/data
