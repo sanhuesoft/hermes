@@ -801,6 +801,59 @@ textarea:focus-visible,
   padding-bottom: 0.5rem;
 }
 
+.bookmark-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding-right: 0.75rem;
+  transition: background 0.15s;
+}
+
+.bookmark-item-row:hover {
+  background: var(--color-accent-dim);
+}
+
+.bookmark-item-row .toc-item {
+  flex: 1;
+  padding-right: 0.25rem;
+}
+
+.bookmark-item-row:hover .toc-item {
+  background: transparent;
+}
+
+.bookmark-item__delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+.bookmark-item-row:hover .bookmark-item__delete {
+  opacity: 1;
+}
+
+.bookmark-item__delete:hover {
+  color: #ef5a68;
+  background: rgba(239, 90, 104, 0.1);
+}
+
+@media (hover: none) {
+  .bookmark-item__delete {
+    opacity: 1;
+  }
+}
+
 @keyframes slideUp {
   from { opacity: 0; transform: translateX(-50%) translateY(12px); }
   to   { opacity: 1; transform: translateX(-50%) translateY(0); }

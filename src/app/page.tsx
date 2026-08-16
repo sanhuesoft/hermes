@@ -487,21 +487,37 @@ export default function Home() {
             ) : (
               <div className="annotations-list annotations-list--bookmarks">
                 {bookmarks.map((bookmark) => (
-                  <button
-                    key={bookmark.id}
-                    className="toc-item"
-                    title={bookmark.label}
-                    onClick={() => {
-                      viewerRef.current?.goToChapter(bookmark.cfi);
-                      setAnnotationsPanelOpen(false);
-                    }}
-                  >
-                    <BookmarkIcon size={14} aria-hidden="true" />
-                    <span>
-                      {new Date(bookmark.createdAt).toLocaleDateString()}{' '}
-                      {new Date(bookmark.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </button>
+                  <div key={bookmark.id} className="bookmark-item-row">
+                    <button
+                      className="toc-item"
+                      title={bookmark.label}
+                      onClick={() => {
+                        viewerRef.current?.goToChapter(bookmark.cfi);
+                        setAnnotationsPanelOpen(false);
+                      }}
+                    >
+                      <BookmarkIcon size={14} aria-hidden="true" />
+                      <span>
+                        {new Date(bookmark.createdAt).toLocaleDateString()}{' '}
+                        {new Date(bookmark.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </button>
+                    <button
+                      className="bookmark-item__delete"
+                      title="Eliminar marcador"
+                      aria-label="Eliminar marcador"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setBookmarks((prev) => {
+                          const updated = prev.filter((b) => b.id !== bookmark.id);
+                          if (activeBookId) updateBookmarks(activeBookId, updated).catch(console.error);
+                          return updated;
+                        });
+                      }}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </button>
+                  </div>
                 ))}
               </div>
             )}
