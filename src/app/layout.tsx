@@ -33,10 +33,23 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'EReader — Lector EPUB Local',
+  title: 'Hermes — Lector EPUB',
   description:
-    'Lector de EPUB moderno con síntesis de voz (Edge TTS), anotaciones y resaltados. Toda la privacidad: el libro nunca sale de tu dispositivo.',
-  keywords: ['epub', 'lector', 'ebook', 'tts', 'text to speech', 'anotaciones'],
+    'Lector de EPUB moderno, ligero y auto-alojado con síntesis de voz (Edge-TTS), notas y marcadores.',
+  keywords: ['epub', 'lector', 'ebook', 'tts', 'text to speech', 'anotaciones', 'hermes', 'self-hosted'],
+  icons: {
+    icon: [
+      { url: '/icons/favicon.ico', sizes: 'any' },
+      { url: '/icons/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/icons/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/icons/android-chrome-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/android-chrome-512x512.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
+  manifest: '/site.webmanifest',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

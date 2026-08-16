@@ -74,8 +74,15 @@ export default function LibrarySidebar() {
       {/* Header */}
       <div className="lib-sidebar__header">
         <span className="lib-sidebar__brand">
-          <LibraryBig size={19} aria-hidden="true" />
-          Biblioteca
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/icons/favicon-32x32.png"
+            alt="Hermes Logo"
+            width={20}
+            height={20}
+            style={{ borderRadius: '4px' }}
+          />
+          Hermes
         </span>
       </div>
 
