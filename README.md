@@ -71,6 +71,17 @@ docker compose up -d
 
 Abre tu navegador e ingresa a `http://localhost:5050` (o la IP de tu servidor/NAS).
 
+### 3. Actualización (Re-pull sin pérdida de datos)
+
+Para actualizar Hermes a la última versión manteniendo todos tus libros, portadas y la base de datos `library.db` intactos:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Debido a que los datos residen en el volumen montado (`/data`) y la base de datos SQLite utiliza sentencias `CREATE TABLE IF NOT EXISTS`, el contenedor se recrea utilizando el volumen existente sin alterar la biblioteca ni las notas.
+
 ---
 
 ## 📦 Despliegue en Portainer
