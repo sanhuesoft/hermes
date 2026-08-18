@@ -382,6 +382,18 @@ export default function TtsControls() {
     return () => window.removeEventListener('toggle-tts', handleToggle);
   }, [status, paragraphs.length, selectedVoice, handlePlay, handlePause, handleResume]);
 
+  // Escuchar tecla Escape para cerrar el menú de ajustes
+  useEffect(() => {
+    if (!showSettings) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowSettings(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showSettings]);
+
   const isDisabled = paragraphs.length === 0 || !selectedVoice;
   const isLoading = status === 'loading';
 
@@ -471,8 +483,10 @@ export default function TtsControls() {
         </button>
 
         <button
+          id="tts-settings-btn"
           onClick={() => setShowSettings(!showSettings)}
           aria-label="Ajustes de voz"
+          aria-expanded={showSettings}
           className={`tts-btn ${showSettings ? 'tts-btn--active' : ''}`}
           style={{ marginLeft: '0.25rem' }}
         >
@@ -480,39 +494,50 @@ export default function TtsControls() {
         </button>
       </div>
 
-      {/* Popover de Ajustes TTS */}
+      {/* Popover / Modal de Ajustes TTS */}
       {showSettings && (
-        <div className="tts-settings-popup">
-          <div className="tts-settings-header">
-            <span className="tts-settings-title">Ajustes de Voz</span>
-            <button className="tts-settings-close" onClick={() => setShowSettings(false)}>
-              <X size={16} />
-            </button>
-          </div>
-          
-          <div className="tts-setting-row">
-            <span className="tts-setting-label">Voz</span>
-            <VoiceSelector />
-          </div>
-
-          <div className="tts-setting-row">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span className="tts-setting-label">Velocidad</span>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                {playbackRate}x
-              </span>
+        <>
+          <div
+            className="tts-settings-backdrop"
+            onClick={() => setShowSettings(false)}
+            aria-hidden="true"
+          />
+          <div className="tts-settings-popup" role="dialog" aria-label="Ajustes de voz">
+            <div className="tts-settings-header">
+              <span className="tts-settings-title">Ajustes de Voz</span>
+              <button
+                className="tts-settings-close"
+                onClick={() => setShowSettings(false)}
+                aria-label="Cerrar ajustes"
+              >
+                <X size={16} />
+              </button>
             </div>
-            <input
-              type="range"
-              min="0.5"
-              max="2.5"
-              step="0.1"
-              value={playbackRate}
-              onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
-              style={{ accentColor: 'var(--color-accent)', width: '100%', cursor: 'pointer' }}
-            />
+            
+            <div className="tts-setting-row">
+              <span className="tts-setting-label">Voz</span>
+              <VoiceSelector />
+            </div>
+
+            <div className="tts-setting-row">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span className="tts-setting-label">Velocidad</span>
+                <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  {playbackRate}x
+                </span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.5"
+                step="0.1"
+                value={playbackRate}
+                onChange={(e) => setPlaybackRate(parseFloat(e.target.value))}
+                style={{ accentColor: 'var(--color-accent)', width: '100%', cursor: 'pointer' }}
+              />
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

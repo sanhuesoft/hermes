@@ -602,6 +602,21 @@ textarea:focus-visible,
    Menú flotante TTS
    ============================================================ */
 
+.tts-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 55;
+  animation: backdrop-fade-in 0.2s ease-out;
+}
+
+@keyframes backdrop-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .tts-settings-popup {
   position: absolute;
   bottom: calc(100% + 10px);
@@ -735,6 +750,12 @@ textarea:focus-visible,
 .tts-btn--primary:hover:not(:disabled) {
   background: var(--color-accent-hover);
   color: white;
+}
+
+.tts-btn--active {
+  background: var(--color-accent-dim);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
 }
 
 /* ============================================================
@@ -2014,10 +2035,10 @@ textarea:focus-visible,
   }
 
   .reader-footer {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0.4rem;
-    padding: 0.45rem 0.6rem;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 0.5rem 1rem;
   }
 
   .voice-selector__select {
@@ -2027,14 +2048,61 @@ textarea:focus-visible,
   }
 
   .tts-controls {
-    justify-content: space-between;
+    justify-content: center;
+    width: 100%;
+    margin-left: 0;
   }
 
-  .tts-controls__status {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .tts-controls__buttons {
+    justify-content: center;
+    gap: 0.75rem;
+    width: 100%;
+  }
+
+  /* Ocultar elementos secundarios en vista móvil */
+  .tts-controls__status,
+  #tts-prev-btn,
+  #tts-next-btn {
+    display: none !important;
+  }
+
+  .tts-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+
+  .tts-btn--primary {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+  }
+
+  /* Modal bottom sheet en móvil para ajustes de TTS */
+  .tts-settings-popup {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 20px 20px 0 0;
+    padding: 1.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom, 0px)) 1.25rem;
+    z-index: 60;
+    box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    transform-origin: bottom center;
+    animation: sheet-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  @keyframes sheet-slide-up {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
   }
 
   .epub-nav-btn {
